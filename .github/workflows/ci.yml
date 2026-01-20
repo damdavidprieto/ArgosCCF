@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Install PowerShell (Linux/macOS)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        if [ "$RUNNER_OS" == "Linux" ]; then
+          sudo apt-get update
+          sudo apt-get install -y powershell
+        elif [ "$RUNNER_OS" == "macOS" ]; then
+          brew install --cask powershell
+        fi
+    
+    - name: Install Pester
+      shell: pwsh
+      run: |
+        Install-Module -Name Pester -Force -SkipPublisherCheck -Scope CurrentUser
+        Install-Module -Name PSScriptAnalyzer -Force -SkipPublisherCheck -Scope CurrentUser
+    
+    - name: Run PSScriptAnalyzer
+      shell: pwsh
+      run: |
+        $results = Invoke-ScriptAnalyzer -Path . -Recurse -Severity Error,Warning
+        if ($results) {
+          $results | Format-Table
+          if ($results | Where-Object { $_.Severity -eq 'Error' }) {
+            throw "PSScriptAnalyzer found errors"
+          }
+        }
+    
+    - name: Test Module Manifest
+      shell: pwsh
+      run: |
+        Test-ModuleManifest -Path ./ArgosCCF.psd1
+    
+    - name: Import Module
+      shell: pwsh
+      run: |
+        Import-Module ./ArgosCCF.psd1 -Force
+        $commands = Get-Command -Module ArgosCCF
+        Write-Host "Exported $($commands.Count) functions"
+        if ($commands.Count -lt 20) {
+          throw "Expected at least 20 exported functions"
+        }
+    
+    - name: Run E2E Security Tests
+      shell: pwsh
+      run: |
+        Import-Module ./ArgosCCF.psd1 -Force
+        $result = & ./Tests/E2E/Security.Tests.ps1
+        if ($LASTEXITCODE -ne 0) {
+          throw "E2E Security tests failed"
+        }
+    
+    - name: Upload Test Results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-results-${{ matrix.os }}
+        path: |
+          Logs/*.log
+          TestResults/
