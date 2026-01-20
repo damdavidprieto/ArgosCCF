@@ -1,0 +1,31 @@
+# .gitignore for ArgosCCF PowerShell Module
+
+# Logs
+Logs/*.log
+*.log
+
+# User configurations (keep Factory and Presets in repo)
+Configs/User/*.json
+
+# PowerShell Gallery build artifacts
+*.nupkg
+publish/
+
+# Test results
+TestResults/
+*.trx
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+~$*
