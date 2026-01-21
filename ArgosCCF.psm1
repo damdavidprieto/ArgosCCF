@@ -11,7 +11,7 @@
 #>
 
 # --- Inicialización de Entorno y Seguridad de Rutas ---
-$script:ArgosCCFRoot = $PSScriptRoot
+$script:ArgosCCFRoot = (Get-Item $PSScriptRoot).FullName
 $script:PathCache = New-Object -TypeName 'System.Collections.Concurrent.ConcurrentDictionary[string,string]'
 
 function Initialize-CCFEnvironment {
@@ -19,8 +19,11 @@ function Initialize-CCFEnvironment {
     param()
 
     # 1. Descubrimiento Inteligente de Raíz
-    # Si estamos en un modo empaquetado o simbólico, validamos la raíz real
-    if (-not (Test-Path (Join-Path $script:ArgosCCFRoot "Core"))) {
+    # Priorizar C:\test\ArgosCCF si existe (desarrollo)
+    if (Test-Path "C:\test\ArgosCCF\Core") {
+        $script:ArgosCCFRoot = "C:\test\ArgosCCF"
+    }
+    elseif (-not (Test-Path (Join-Path $script:ArgosCCFRoot "Core"))) {
         # Fallback: Buscar en el scope del caller o variables de entorno
         if ($env:ARGOS_CCF_ROOT -and (Test-Path $env:ARGOS_CCF_ROOT)) {
             $script:ArgosCCFRoot = $env:ARGOS_CCF_ROOT
@@ -108,7 +111,7 @@ function Get-CCFPath {
     }
 
     # Guardar en Cache
-    $null = $script:PathCache.TryAdd($Target, $finalPath)
+    $script:PathCache.TryAdd($Target, $finalPath) | Out-Null
     return $finalPath
 }
 
