@@ -26,25 +26,31 @@
     # Functions to export from this module, for best performance, do not use wildcards
     FunctionsToExport = @(
         'Get-CCFPath',
-        'init-CCFLogger',
+        'Initialize-CCFLogger',
         'Write-CCFLog',
-        'Log-Info', 
-        'Log-Warn', 
-        'Log-Error', 
-        'Log-Success', 
-        'Log-Critical', 
-        'Log-Debug',
-        'Log-Header',
-        'Log-Attack',
-        'Catch-CCFError',
+        'Write-CCFLogInfo',
+        'Write-CCFLogSuccess',
+        'Write-CCFLogWarn',
+        'Write-CCFLogError',
+        'Write-CCFLogCritical',
+        'Write-CCFLogDebug',
+        'Write-CCFLogHeader',
+        'Write-CCFSecurityRecord',
+        'Write-CCFAuditRecord',
+        'Write-CCFErrorRecord',
         'Get-CCFConfig',
         'Set-CCFUserConfig',
-        'Clear-CCFConfigCache',
+        'Remove-CCFConfigCache',
         'Test-CCFConfigSchema',
         'Get-CCFPlugins',
         'Invoke-CCFPlugin',
-        'Test-CCFPluginSignature',
-        'Invoke-CCFParallel'
+        'Confirm-CCFPluginSignature',
+        'Invoke-CCFParallel',
+        'Test-CCFHealth',
+        'Submit-CCFHeartbeat',
+        'Initialize-CCFEnvironment',
+        'Protect-CCFSensitiveData',
+        'Test-CCFEntropyContent'
     )
 
     # Cmdlets to export from this module
@@ -54,7 +60,11 @@
     VariablesToExport = @()
 
     # Aliases to export from this module
-    AliasesToExport   = @()
+    AliasesToExport   = @(
+        'Log-Info', 'Log-Success', 'Log-Warn', 'Log-Error', 'Log-Critical', 'Log-Debug', 'Log-Header',
+        'Init-CCFLogger', 'Catch-CCFError', 'Log-Attack', 'Log-Audit', 'Redact-CCFSensitiveData',
+        'Clear-CCFConfigCache', 'Test-CCFPluginSignature', 'Test-CCFHighEntropy'
+    )
 
     # Private data to pass to the module specified in RootModule/ModuleToProcess
     PrivateData       = @{

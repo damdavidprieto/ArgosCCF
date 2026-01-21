@@ -7,7 +7,7 @@
     Incluye un sistema de caché en memoria para alto rendimiento.
 #>
 
-$script:ConfigCache = @{}
+$script:ConfigCache = New-Object -TypeName 'System.Collections.Concurrent.ConcurrentDictionary[string,object]'
 
 # --- Auxiliar: Fusión Recursiva (Deep Merge) ---
 function Merge-CCFConfig {
@@ -54,9 +54,16 @@ function Get-CCFConfig {
     
     # 1. Verificar Caché (Si no hay ForceRefresh)
     $cacheKey = "$ConfigName" + ($ActivePresets -join ",")
-    if ($script:ConfigCache.ContainsKey($cacheKey) -and -not $ForceRefresh) {
-        Log-Debug "Retornando configuración desde caché para: $ConfigName"
-        return $script:ConfigCache[$cacheKey]
+    $cachedVal = $null
+    if (-not $ForceRefresh -and $script:ConfigCache.TryGetValue($cacheKey, [ref]$cachedVal)) {
+        Write-CCFLogDebug "Retornando configuración desde caché para: $ConfigName"
+        return $cachedVal
+    }
+
+    # SEGURIDAD: Sanitización de ConfigName (Anti-PathTraversal)
+    if ($ConfigName -match "[\\/:]" -or $ConfigName -match "\.\.") {
+        Log-Error "BLOQUEO DE SEGURIDAD: Intento de Path Traversal o nombre de configuración inválido: $ConfigName"
+        return $null
     }
 
     $configRoot = Get-CCFPath -Target "Configs"
@@ -102,7 +109,7 @@ function Get-CCFConfig {
     }
     
     # Guardar en Caché
-    $script:ConfigCache[$cacheKey] = $finalConfig
+    $null = $script:ConfigCache.TryAdd($cacheKey, $finalConfig)
     return $finalConfig
 }
 
@@ -127,8 +134,11 @@ function Set-CCFUserConfig {
         
         # Invalidar todas las entradas de caché para este ConfigName
         $keysToClear = $script:ConfigCache.Keys | Where-Object { $_ -like "$ConfigName*" }
-        foreach ($k in $keysToClear) { $script:ConfigCache.Remove($k) }
-        Log-Debug "Caché invalidada para: $ConfigName"
+        foreach ($k in $keysToClear) { 
+            $removed = $null
+            $null = $script:ConfigCache.TryRemove($k, [ref]$removed) 
+        }
+        Write-CCFLogDebug "Caché invalidada para: $ConfigName"
     }
     catch {
         Log-Error "No se pudo guardar en $userPath"
@@ -136,9 +146,9 @@ function Set-CCFUserConfig {
 }
 
 # --- Limpieza de Caché ---
-function Clear-CCFConfigCache {
+function Remove-CCFConfigCache {
     $script:ConfigCache.Clear()
-    Log-Info "Caché de configuración vaciada."
+    Write-CCFLogInfo "Caché de configuración vaciada."
 }
 
 # --- Validación de Esquiva (Schema-lite) ---
@@ -172,4 +182,7 @@ function Test-CCFConfigSchema {
     return $true
 }
 
-Export-ModuleMember -Function Get-CCFConfig, Set-CCFUserConfig, Clear-CCFConfigCache, Test-CCFConfigSchema
+# --- Alias de Retrocompatibilidad ---
+New-Alias -Name Clear-CCFConfigCache -Value Remove-CCFConfigCache
+
+Export-ModuleMember -Function Get-CCFConfig, Set-CCFUserConfig, Remove-CCFConfigCache, Test-CCFConfigSchema -Alias *
