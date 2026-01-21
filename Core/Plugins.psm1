@@ -1,5 +1,5 @@
 # --- Descubrimiento de Plugins ---
-function Test-CCFPluginSignature {
+function Confirm-CCFPluginSignature {
     param([Parameter(Mandatory = $true)][string]$Path)
     
     # Asegurar que el archivo existe
@@ -29,7 +29,7 @@ function Get-CCFPlugins {
             Version     = "1.0.0"
             Author      = "Unknown"
             Path        = $file.FullName
-            Signed      = (Test-CCFPluginSignature -Path $file.FullName).Valid
+            Signed      = (Confirm-CCFPluginSignature -Path $file.FullName).Valid
             Manifest    = $null
         }
 
@@ -105,7 +105,7 @@ function Invoke-CCFPlugin {
     }
 
     if ($requireSigned) {
-        $sigResult = Test-CCFPluginSignature -Path $Plugin.Path
+        $sigResult = Confirm-CCFPluginSignature -Path $Plugin.Path
         if (-not $sigResult.Valid) {
             Log-Critical "BLOQUEO DE SEGURIDAD: El plugin $($Plugin.Name) no tiene una firma válida y la política RequireSignedPlugins está activa."
             return $null
@@ -157,6 +157,9 @@ function Invoke-CCFPlugin {
                 throw $ps.Streams.Error[0].Exception
             }
             $rs.Close()
+            # Aplanar resultado para consistencia (Invoke retorna Colección)
+            if ($null -ne $result -and $result.Count -eq 1) { $result = $result[0] }
+            elseif ($null -ne $result -and $result.Count -eq 0) { $result = $null }
         }
         else {
             $scriptBlock = [scriptblock]::Create($scriptText)
@@ -178,9 +181,12 @@ function Invoke-CCFPlugin {
         return $result
     }
     catch {
-        Catch-CCFError -ErrorRecord $_ -Context "PluginExecution:$($Plugin.Name)"
+        Write-CCFErrorRecord -ErrorRecord $_ -Context "PluginExecution:$($Plugin.Name)"
         return $null
     }
 }
 
-Export-ModuleMember -Function Get-CCFPlugins, Invoke-CCFPlugin
+# --- Alias de Retrocompatibilidad ---
+New-Alias -Name Test-CCFPluginSignature -Value Confirm-CCFPluginSignature
+
+Export-ModuleMember -Function Get-CCFPlugins, Invoke-CCFPlugin -Alias *
