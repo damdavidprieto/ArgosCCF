@@ -1,6 +1,7 @@
 Describe "ArgosCCF: Integración y Ecosistema (Professional API)" {
     BeforeAll {
-        Import-Module "C:\test\ArgosCCF\ArgosCCF.psd1" -Force
+        $manifest = Join-Path $PSScriptRoot "..\..\ArgosCCF.psd1"
+        Import-Module $manifest -Force
     }
 
     Context "Salud del Sistema" {

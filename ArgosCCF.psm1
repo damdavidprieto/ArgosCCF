@@ -19,15 +19,11 @@ function Initialize-CCFEnvironment {
     param()
 
     # 1. Descubrimiento Inteligente de Raíz
-    # Priorizar C:\test\ArgosCCF si existe (desarrollo)
-    if (Test-Path "C:\test\ArgosCCF\Core") {
-        $script:ArgosCCFRoot = "C:\test\ArgosCCF"
+    if (Test-Path (Join-Path $script:ArgosCCFRoot "Core")) {
+        # Already correct
     }
-    elseif (-not (Test-Path (Join-Path $script:ArgosCCFRoot "Core"))) {
-        # Fallback: Buscar en el scope del caller o variables de entorno
-        if ($env:ARGOS_CCF_ROOT -and (Test-Path $env:ARGOS_CCF_ROOT)) {
-            $script:ArgosCCFRoot = $env:ARGOS_CCF_ROOT
-        }
+    elseif ($env:ARGOS_CCF_ROOT -and (Test-Path $env:ARGOS_CCF_ROOT)) {
+        $script:ArgosCCFRoot = $env:ARGOS_CCF_ROOT
     }
 
     # 2. Sanity Check de Permisos y Estructura
@@ -137,9 +133,10 @@ foreach ($modName in $orderedModules) {
 # --- Importación Automática de Public Functions ---
 # (Futuro: Mover funciones Core a archivos individuales en Public/Private para granularidad)
 
-# Exportar API Pública explícita (coincide con Manifest)
 Export-ModuleMember -Function @(
     'Get-CCFPath',
+    'Register-CCFLogProvider',
+    'Register-CCFSIEMProvider',
     'Initialize-CCFLogger',
     'Write-CCFLog',
     'Write-CCFLogInfo',

@@ -26,6 +26,8 @@
     # Functions to export from this module, for best performance, do not use wildcards
     FunctionsToExport = @(
         'Get-CCFPath',
+        'Register-CCFLogProvider',
+        'Register-CCFSIEMProvider',
         'Initialize-CCFLogger',
         'Write-CCFLog',
         'Write-CCFLogInfo',

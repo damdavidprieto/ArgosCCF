@@ -22,7 +22,9 @@ function Invoke-CCFParallel {
         
         [int]$RetryCount = 0,
         
-        [int]$RetryDelayMs = 500
+        [int]$RetryDelayMs = 500,
+
+        [scriptblock]$OnProgress # Callback: param($processedCount, $totalCount)
     )
     
     $totalTimer = [System.Diagnostics.Stopwatch]::StartNew()
@@ -35,10 +37,12 @@ function Invoke-CCFParallel {
     
     $jobs = New-Object System.Collections.Generic.List[PSCustomObject]
     $finalResults = New-Object System.Collections.Generic.List[PSCustomObject]
+    $totalObjects = $InputObjects.Count
+    $processedCount = 0
 
     # ScriptBlock Wrapper para Telemetría y Errores
     $wrapper = {
-        param($obj, $args, $sb, $tries)
+        param($obj, $Params, $sb, $tries)
         $timer = [System.Diagnostics.Stopwatch]::StartNew()
         $currentTry = 0
         $success = $false
@@ -47,7 +51,7 @@ function Invoke-CCFParallel {
 
         while ($currentTry -le $tries -and -not $success) {
             try {
-                $output = & $sb $obj $args
+                $output = & $sb $obj $Params
                 $success = $true
             }
             catch {
@@ -92,25 +96,37 @@ function Invoke-CCFParallel {
                             Retries  = $res.Retries
                             Error    = $res.Error
                         })
+                    
+                    # Update progress
+                    $processedCount++
+                    if ($null -ne $OnProgress) {
+                        try {
+                            & $OnProgress $processedCount $totalObjects
+                        }
+                        catch { }
+                    }
                 }
                 catch {
-                    Log-Error "Fallo fatal en Runspace para $($job.Target)"
+                    # Use Write-Host if Log-Error fails for some reason
+                    Write-Host "[!] Fallo fatal en Runspace para $($job.Target): $($_.Exception.Message)" -ForegroundColor Red
                 }
                 finally {
                     $job.PowerShell.Dispose()
-                    $jobs.Remove($job) | Out-Null
+                    $null = $jobs.Remove($job)
                 }
             }
             if ($jobs.Count -gt 0) { Start-Sleep -Milliseconds 100 }
         }
         
         $totalTimer.Stop()
-        Log-Success "Paralelización finalizada en $($totalTimer.Elapsed.TotalSeconds)s."
+        Write-CCFLogSuccess "Paralelización finalizada en $([math]::Round($totalTimer.Elapsed.TotalSeconds, 2))s."
         return $finalResults
     }
     finally {
-        $rsPool.Close()
-        $rsPool.Dispose()
+        if ($null -ne $rsPool) {
+            $rsPool.Close()
+            $rsPool.Dispose()
+        }
     }
 }
 

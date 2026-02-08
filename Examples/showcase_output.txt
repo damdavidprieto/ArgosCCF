@@ -1,0 +1,141 @@
+﻿[2026-02-08T18:17:52.488Z] [INFO] [System] Paso 1: 
+Configurando Ecosistema de Logging y SIEM
+[2026-02-08T18:17:52.517Z] [SUCCESS] [System] SIEM 
+Provider (Samael/Export) registrado correctamente.
+[SIEM-SAMAEL] Recibido evento de criticidad 
+SUCCESS: SIEM Provider (Samael/Export) registrado 
+correctamente.
+[2026-02-08T18:17:52.536Z] [SUCCESS] [System] 
+Ecosistema de exportaciÃ³n configurado.
+[SIEM-SAMAEL] Recibido evento de criticidad 
+SUCCESS: Ecosistema de exportaciÃ³n configurado.
+[2026-02-08T18:17:52.538Z] [INFO] [System] Paso 2: 
+ValidaciÃ³n de Esquema (Schema Professional API)
+[SIEM-SAMAEL] Recibido evento de criticidad INFO: 
+Paso 2: ValidaciÃ³n de Esquema (Schema Professional 
+API)
+[2026-02-08T18:17:52.543Z] [INFO] [System] 
+Validando configuraciÃ³n contra esquema estricto...
+[SIEM-SAMAEL] Recibido evento de criticidad INFO: 
+Validando configuraciÃ³n contra esquema estricto...
+[2026-02-08T18:17:52.572Z] [ERROR] [System] 
+ValidaciÃ³n de Config: Campo obligatorio faltante: 
+Environment
+[SIEM-SAMAEL] Recibido evento de criticidad ERROR: 
+ValidaciÃ³n de Config: Campo obligatorio faltante: 
+Environment
+[2026-02-08T18:17:52.575Z] [ERROR] [System] 
+ValidaciÃ³n de Config: Valor 'Liquid' no permitido 
+para Theme. Opciones: Dark, Light
+[SIEM-SAMAEL] Recibido evento de criticidad ERROR: 
+ValidaciÃ³n de Config: Valor 'Liquid' no permitido 
+para Theme. Opciones: Dark, Light
+[2026-02-08T18:17:52.578Z] [WARN] [System] Se 
+detectaron errores de validaciÃ³n (esperado en este 
+demo).
+[SIEM-SAMAEL] Recibido evento de criticidad WARN: 
+Se detectaron errores de validaciÃ³n (esperado en 
+este demo).
+[2026-02-08T18:17:52.582Z] [INFO] [System] Estado 
+tras aplicar defaults: 
+[SIEM-SAMAEL] Recibido evento de criticidad INFO: 
+Estado tras aplicar defaults: 
+[2026-02-08T18:17:52.585Z] [INFO] [System] Paso 3: 
+EjecuciÃ³n Paralela con TelemetrÃa en Tiempo Real
+[SIEM-SAMAEL] Recibido evento de criticidad INFO: 
+Paso 3: EjecuciÃ³n Paralela con TelemetrÃa en 
+Tiempo Real
+[2026-02-08T18:17:52.586Z] [INFO] [System] 
+Iniciando 5 tareas simuladas...
+[SIEM-SAMAEL] Recibido evento de criticidad INFO: 
+Iniciando 5 tareas simuladas...
+[2026-02-08T18:17:52.605Z] [INFO] [System] 
+Inicializando motor paralelo (Hilos: 2, Reintentos: 
+0)
+[SIEM-SAMAEL] Recibido evento de criticidad INFO: 
+Inicializando motor paralelo (Hilos: 2, Reintentos: 
+0)
+   [PROGRESO] 1 / 5 (20%) completado...
+[2026-02-08T18:17:53.330Z] [SUCCESS] [System] 
+ParalelizaciÃ³n finalizada en 0.7254617s.
+Write-CCFLogSuccess : El término 
+'Write-CCFLogSuccess' no se reconoce como nombre de 
+un cmdlet, función, archivo de script o programa 
+ejecutable. Compruebe si escribió correctamente el 
+nombre o, si incluyó una ruta de acceso, compruebe 
+que dicha ruta es correcta e inténtelo de nuevo.
+En C:\Proyectos\Test\ArgosCCF\Examples\Pro_Feature_S
+howcase.ps1: 64 Carácter: 1
++ Write-CCFLogSuccess "EjecuciÃ³n paralela 
+finalizada. $($Results.Count ...
++ ~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (Writ 
+   e-CCFLogSuccess:String) [], CommandNotFoundExce  
+  ption
+    + FullyQualifiedErrorId : CommandNotFoundExcept 
+   ion
+ 
+Import-Module : El término 'Import-Module' no se 
+reconoce como nombre de un cmdlet, función, archivo 
+de script o programa ejecutable. Compruebe si 
+escribió correctamente el nombre o, si incluyó una 
+ruta de acceso, compruebe que dicha ruta es 
+correcta e inténtelo de nuevo.
+En C:\Proyectos\Test\ArgosCCF\Examples\Pro_Feature_S
+howcase.ps1: 67 Carácter: 1
++ Import-Module Microsoft.PowerShell.Utility
++ ~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (Impo 
+   rt-Module:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundExcept 
+   ion
+ 
+Measure-Object : El término 'Measure-Object' no se 
+reconoce como nombre de un cmdlet, función, archivo 
+de script o programa ejecutable. Compruebe si 
+escribió correctamente el nombre o, si incluyó una 
+ruta de acceso, compruebe que dicha ruta es 
+correcta e inténtelo de nuevo.
+En C:\Proyectos\Test\ArgosCCF\Examples\Pro_Feature_S
+howcase.ps1: 68 Carácter: 35
++ $totalTime = ($Results.Duration | Measure-Object 
+-Sum).Sum
++                                   ~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (Meas 
+   ure-Object:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundExcept 
+   ion
+ 
+Write-CCFLogInfo : El término 'Write-CCFLogInfo' no 
+se reconoce como nombre de un cmdlet, función, 
+archivo de script o programa ejecutable. Compruebe 
+si escribió correctamente el nombre o, si incluyó 
+una ruta de acceso, compruebe que dicha ruta es 
+correcta e inténtelo de nuevo.
+En C:\Proyectos\Test\ArgosCCF\Examples\Pro_Feature_S
+howcase.ps1: 69 Carácter: 1
++ Write-CCFLogInfo "Tiempo total de procesamiento 
+acumulado: $([math]:: ...
++ ~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (Writ 
+   e-CCFLogInfo:String) [], CommandNotFoundExcepti  
+  on
+    + FullyQualifiedErrorId : CommandNotFoundExcept 
+   ion
+ 
+Write-CCFLogHeader : El término 
+'Write-CCFLogHeader' no se reconoce como nombre de 
+un cmdlet, función, archivo de script o programa 
+ejecutable. Compruebe si escribió correctamente el 
+nombre o, si incluyó una ruta de acceso, compruebe 
+que dicha ruta es correcta e inténtelo de nuevo.
+En C:\Proyectos\Test\ArgosCCF\Examples\Pro_Feature_S
+howcase.ps1: 70 Carácter: 1
++ Write-CCFLogHeader "DEMO FINALIZADA CON EXITO"
++ ~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (Writ 
+   e-CCFLogHeader:String) [], CommandNotFoundExcep  
+  tion
+    + FullyQualifiedErrorId : CommandNotFoundExcept 
+   ion
+ 
