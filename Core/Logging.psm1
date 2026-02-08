@@ -8,6 +8,7 @@
 #>
 
 $script:LogProvider = $null
+$script:SIEMProvider = $null # Hook para exportación SIEM (Samael)
 $script:CurrentLogFile = $null
 $script:LogBuffer = New-Object System.Collections.Generic.List[PSCustomObject]
 $script:MaxLogSizeMB = 10
@@ -28,7 +29,16 @@ function Register-CCFLogProvider {
         [scriptblock]$ProviderScript
     )
     $script:LogProvider = $ProviderScript
-    Write-CCFLog "Log Provider registrado correctamente." -Level "SUCCESS"
+    Write-CCFLog "Log Provider (Console/UI) registrado correctamente." -Level "SUCCESS"
+}
+
+function Register-CCFSIEMProvider {
+    param(
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$ProviderScript
+    )
+    $script:SIEMProvider = $ProviderScript
+    Write-CCFLog "SIEM Provider (Samael/Export) registrado correctamente." -Level "SUCCESS"
 }
 
 # --- Motor de Sanitización (Análisis de Entropía) ---
@@ -214,7 +224,7 @@ function Write-CCFLog {
         Context   = @{ RSID = $rsId }
     }
 
-    # Consola / Provider
+    # 1. Consola / Provider de UI
     if ($null -ne $script:LogProvider) {
         try {
             Invoke-Command -ScriptBlock $script:LogProvider -ArgumentList @{ Entry = $logEntry; Color = $Color } -ErrorAction Stop
@@ -233,6 +243,17 @@ function Write-CCFLog {
             default { $Color }
         }
         Write-Host "[$timestamp] [$Level] [$Category] $cleanMessage" -ForegroundColor $fColor
+    }
+
+    # 2. SIEM Export (Samael Integration)
+    if ($null -ne $script:SIEMProvider) {
+        try {
+            # Se envía el logEntry completo (ya sanitizado) al proveedor SIEM
+            Invoke-Command -ScriptBlock $script:SIEMProvider -ArgumentList @{ Entry = $logEntry } -ErrorAction SilentlyContinue
+        }
+        catch {
+            # Fallo silencioso en SIEM para no bloquear el hilo principal
+        }
     }
     
     # Archivo
@@ -283,6 +304,6 @@ New-Alias -Name Init-CCFLogger -Value Initialize-CCFLogger
 New-Alias -Name Catch-CCFError -Value Write-CCFErrorRecord
 New-Alias -Name Redact-CCFSensitiveData -Value Protect-CCFSensitiveData
 
-Export-ModuleMember -Function Set-CCFLogLevel, Register-CCFLogProvider, Initialize-CCFLogger, Write-CCFLog, Write-CCFErrorRecord, `
+Export-ModuleMember -Function Set-CCFLogLevel, Register-CCFLogProvider, Register-CCFSIEMProvider, Initialize-CCFLogger, Write-CCFLog, Write-CCFErrorRecord, `
     Write-CCFLogInfo, Write-CCFLogSuccess, Write-CCFLogWarn, Write-CCFLogError, Write-CCFLogCritical, Write-CCFLogDebug, Write-CCFLogHeader, `
     Test-CCFHealth, Submit-CCFHeartbeat, Protect-CCFSensitiveData -Alias *

@@ -151,7 +151,7 @@ function Remove-CCFConfigCache {
     Write-CCFLogInfo "Caché de configuración vaciada."
 }
 
-# --- Validación de Esquiva (Schema-lite) ---
+# --- Validación de Esquiva (Schema Professional API) ---
 function Test-CCFConfigSchema {
     param(
         [Parameter(Mandatory = $true)]
@@ -164,14 +164,36 @@ function Test-CCFConfigSchema {
     $errors = New-Object System.Collections.Generic.List[string]
     
     foreach ($key in $Schema.Keys) {
-        $expectedType = $Schema[$key]
+        $rule = $Schema[$key]
         $val = $Config.$key
         
-        if ($null -eq $val) {
-            $errors.Add("Campo faltante: $key")
+        # 1. Check Mandatory
+        if ($rule.Mandatory -and ($null -eq $val)) {
+            $errors.Add("Campo obligatorio faltante: $key")
+            continue
         }
-        elseif (-not ($val -is $expectedType)) {
-            $errors.Add("Tipo incorrecto para $key. Esperado: $($expectedType.Name), Obtenido: $($val.GetType().Name)")
+
+        if ($null -eq $val) {
+            # Apply Default if available
+            if ($null -ne $rule.Default) {
+                $Config | Add-Member -NotePropertyName $key -NotePropertyValue $rule.Default -Force
+                Log-Debug "Aplicado valor por defecto para $($key): $($rule.Default)"
+            }
+            continue
+        }
+        
+        # 2. Check Type
+        if ($null -ne $rule.Type) {
+            if (-not ($val -is $rule.Type)) {
+                $errors.Add("Tipo incorrecto para $key. Esperado: $($rule.Type.Name), Obtenido: $($val.GetType().Name)")
+            }
+        }
+
+        # 3. Check Allowed Values
+        if ($null -ne $rule.AllowedValues -and ($rule.AllowedValues -is [array])) {
+            if ($rule.AllowedValues -notcontains $val) {
+                $errors.Add("Valor '$val' no permitido para $key. Opciones: $($rule.AllowedValues -join ', ')")
+            }
         }
     }
     

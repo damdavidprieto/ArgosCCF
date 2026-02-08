@@ -1,6 +1,7 @@
 Describe "ArgosCCF: Motor de Configuración (Professional API)" {
     BeforeAll {
-        Import-Module "C:\test\ArgosCCF\ArgosCCF.psd1" -Force
+        $manifest = Join-Path $PSScriptRoot "..\..\ArgosCCF.psd1"
+        Import-Module $manifest -Force
     }
 
     Context "Seguridad (Parche CWE-22)" {
