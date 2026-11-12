@@ -3,7 +3,8 @@
     CCF Benchmark & Stress Test (v1.1)
 #>
 
-Import-Module "C:\test\ArgosCCF\ArgosCCF.psm1" -Force
+$RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+Import-Module (Join-Path $RepoRoot "ArgosCCF.psm1") -Force
 
 # 1. Configuración de Niveles de Log
 Set-CCFLogLevel -Level "DEBUG"

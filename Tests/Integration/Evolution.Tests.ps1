@@ -1,7 +1,8 @@
 # CCF_Evolution_v1.3_Test.ps1
-Import-Module "C:\test\ArgosCCF\ArgosCCF.psm1" -Force
-Import-Module "C:\test\ArgosCCF\Core\Logging.psm1" -Force
-Import-Module "C:\test\ArgosCCF\Core\Plugins.psm1" -Force
+$RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+Import-Module (Join-Path $RepoRoot "ArgosCCF.psm1") -Force
+Import-Module (Join-Path $RepoRoot "Core/Logging.psm1") -Force
+Import-Module (Join-Path $RepoRoot "Core/Plugins.psm1") -Force
 
 Init-CCFLogger -FileName "CCF_v1.3_Evolution.log"
 

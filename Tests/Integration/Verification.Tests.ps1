@@ -3,7 +3,8 @@
     CCF Final Verification Suite (v1.2+)
 #>
 
-Import-Module "C:\test\ArgosCCF\ArgosCCF.psm1" -Force
+$RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+Import-Module (Join-Path $RepoRoot "ArgosCCF.psm1") -Force
 Init-CCFLogger -FileName "CCF_Final_Verification.log" -MaxMB 10
 
 Log-Header "--- INICIANDO VERIFICACION FINAL CCF 1.2+ ---"
