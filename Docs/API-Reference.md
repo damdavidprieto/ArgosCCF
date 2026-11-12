@@ -21,7 +21,7 @@ Get-CCFPath -Target <String>
 **Example:**
 ```powershell
 $logDir = Get-CCFPath -Target "Logs"
-# Returns: C:\test\ArgosCCF\Logs
+# Returns: <repo>\ArgosCCF\Logs
 ```
 
 ---

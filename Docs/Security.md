@@ -89,7 +89,7 @@ All file operations validate paths:
 $path = Get-CCFPath -Target "Logs" -Override "C:\Windows\System32"
 
 # ArgosCCF blocks this and returns the safe default
-# Result: C:\test\ArgosCCF\Logs
+# Result: <repo>\ArgosCCF\Logs
 ```
 
 ### 6. Forensic Logging
