@@ -82,6 +82,25 @@ try {
 }
 catch {
     Log-Critical "FALLO INTERNO CAPTURADO POR LOS OJOS DE ARGOS: $($_.Exception.Message)"
+    # Un error interno nunca debe pasar desapercibido: cuenta como fallo.
+    $GlobalResults["Error interno durante la ejecucion"] = "FAILED"
+}
+
+# Todos los pilares obligatorios deben haberse ejecutado y haber terminado en SUCCESS.
+# Si un pilar no llega a ejecutarse (por ejemplo, por una excepcion previa), tambien es un fallo.
+$RequiredPillars = @(
+    "Pilar 1: Esquema de Configuracion",
+    "Pilar 2.1: Sanitizacion por Lista Negra",
+    "Pilar 2.2: Sanitizacion por Entropia",
+    "Pilar 3: Anti-PathTraversal",
+    "Pilar 4.1: Carga de Manifiesto JSON",
+    "Pilar 5: Plugin Sandboxing (Constrained)"
+)
+foreach ($pillar in $RequiredPillars) {
+    if (-not $GlobalResults.Contains($pillar)) {
+        $GlobalResults[$pillar] = "FAILED"
+        Log-Error "[ARGOS-EYE] NOT EXECUTED: $pillar"
+    }
 }
 
 Log-Header "=== REPORTE FINAL DE OPERACION ARGOS ==="
