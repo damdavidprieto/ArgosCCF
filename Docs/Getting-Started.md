@@ -6,7 +6,7 @@
 
 ## Installation
 
-### From PowerShell Gallery (Coming Soon)
+### From PowerShell Gallery (not yet published)
 
 ```powershell
 Install-Module -Name ArgosCCF -Scope CurrentUser
