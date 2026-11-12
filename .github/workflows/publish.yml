@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*.*.*'
 
+permissions:
+  contents: write
+
 jobs:
   publish:
     name: Publish Module
@@ -12,7 +15,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
     
     - name: Install Dependencies
       shell: pwsh
@@ -45,13 +48,8 @@ jobs:
         Publish-Module -Path . -NuGetApiKey $env:NUGET_API_KEY -Verbose
     
     - name: Create GitHub Release
-      uses: actions/create-release@v1
+      shell: pwsh
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: ArgosCCF ${{ github.ref }}
-        body: |
-          See [CHANGELOG.md](https://github.com/damdavidprieto/ArgosCCF/blob/main/CHANGELOG.md) for details.
-        draft: false
-        prerelease: false
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release create "${{ github.ref_name }}" --title "ArgosCCF ${{ github.ref_name }}" --notes "See CHANGELOG.md for details: https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md"
