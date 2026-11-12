@@ -1,6 +1,7 @@
 try {
     Write-Host "Cargando módulo..."
-    Import-Module "C:\test\ArgosCCF\Core\Logging.psm1" -Force -ErrorAction Stop
+    $RepoRoot = Split-Path $PSScriptRoot -Parent
+Import-Module (Join-Path $RepoRoot "Core/Logging.psm1") -Force -ErrorAction Stop
     Write-Host "Módulo cargado correctamente."
 
     $testString = "A1b2C3d4_E5f6G7h8-I9j0"

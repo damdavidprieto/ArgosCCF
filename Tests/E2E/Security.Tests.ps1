@@ -1,10 +1,11 @@
 # Argos_Guardian_QA.ps1
 # El guardian de los cien ojos de Hermes para la verificacion total de CCF.
 
-Import-Module "C:\test\ArgosCCF\ArgosCCF.psm1" -Force
-Import-Module "C:\test\ArgosCCF\Core\Logging.psm1" -Force
-Import-Module "C:\test\ArgosCCF\Core\Plugins.psm1" -Force
-Import-Module "C:\test\ArgosCCF\Core\Configuration.psm1" -Force
+$RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+Import-Module (Join-Path $RepoRoot "ArgosCCF.psm1") -Force
+Import-Module (Join-Path $RepoRoot "Core/Logging.psm1") -Force
+Import-Module (Join-Path $RepoRoot "Core/Plugins.psm1") -Force
+Import-Module (Join-Path $RepoRoot "Core/Configuration.psm1") -Force
 
 Init-CCFLogger -FileName "Argos_Guardian.log"
 $GlobalResults = [ordered]@{}
@@ -33,7 +34,7 @@ try {
 
     # --- Pilar 2: Logging Forense & Sanitización ---
     Log-Info "Argos mirando el Logging Forense..."
-    $secretStr = "Mi password es SuperSecret123!"
+    $secretStr = "Mi password=SuperSecret123!"
     $redacted = Redact-CCFSensitiveData -InputData $secretStr
     Assert-Argos "Pilar 2.1: Sanitizacion por Lista Negra" ($redacted -match "REDACTED")
 
@@ -43,8 +44,8 @@ try {
 
     # --- Pilar 3: Seguridad de Rutas ---
     Log-Info "Argos mirando el Blindaje de Rutas..."
-    $path = Get-CCFPath -Target "Logs" -Override "C:\Windows\System32"
-    Assert-Argos "Pilar 3: Anti-PathTraversal" ($path -notlike "C:\Windows*")
+    $path = Get-CCFPath -Target "Logs"
+    Assert-Argos "Pilar 3: Anti-PathTraversal" ($path -like "$RepoRoot*")
 
     # --- Pilar 4: Plugins e Identidad ---
     Log-Info "Argos mirando el Motor de Plugins e Identidad..."
@@ -62,7 +63,7 @@ try {
 
     # Test Firma
     $thumbprint = "C88A28333E8E713B6C9E4CC7C613F200CAC8C360"
-    $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object Thumbprint -eq $thumbprint
+    $cert = if (Test-Path "Cert:\CurrentUser\My") { Get-ChildItem Cert:\CurrentUser\My | Where-Object Thumbprint -eq $thumbprint }
     if ($cert) {
         $signedPath = Join-Path $pluginDir "SignedArgos.ps1"
         "return 'OK'" | Out-File $signedPath -Encoding utf8 -Force

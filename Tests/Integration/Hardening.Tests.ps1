@@ -3,7 +3,8 @@
     Suite de Verificación de Hardening de Seguridad CCF
 #>
 
-Import-Module "C:\test\ArgosCCF\ArgosCCF.psm1" -Force
+$RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+Import-Module (Join-Path $RepoRoot "ArgosCCF.psm1") -Force
 Init-CCFLogger -FileName "CCF_Security_Test.log"
 
 Log-Header "--- TEST 1: SANITIZACION HEURISTICA (ENTROPIA) ---"

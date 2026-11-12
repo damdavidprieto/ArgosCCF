@@ -3,7 +3,8 @@
     CCF Forensic Logging Verification Suite (Grado Alucard)
 #>
 
-Import-Module "C:\test\ArgosCCF\ArgosCCF.psm1" -Force
+$RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+Import-Module (Join-Path $RepoRoot "ArgosCCF.psm1") -Force
 
 # 1. Forzar salida JSON vía Config (simulación)
 $script:JsonOutput = $true # Hack rápido para el test
