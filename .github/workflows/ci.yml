@@ -48,7 +48,7 @@ jobs:
       shell: pwsh
       run: |
         Import-Module ./ArgosCCF.psd1 -Force
-        $commands = Get-Command -Module ArgosCCF
+        $commands = Get-Command -CommandType Function -Name "*-CCF*"
         Write-Host "Exported $($commands.Count) functions"
         if ($commands.Count -lt 20) {
           throw "Expected at least 20 exported functions"
