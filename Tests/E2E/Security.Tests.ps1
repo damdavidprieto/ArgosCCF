@@ -57,7 +57,7 @@ try {
     $manifest | ConvertTo-Json | Out-File (Join-Path $pluginDir "ccf_plugin.json") -Force
     "return 'Argos Success'" | Out-File (Join-Path $pluginDir "Argos.ps1") -Force -Encoding utf8
 
-    $allPlugins = Get-CCFPlugins
+    $allPlugins = Get-CCFPlugins -Path $pluginDir
     $argosPlugin = $allPlugins | Where-Object { $_.Name -eq "Argos-Plugin" }
     Assert-Argos "Pilar 4.1: Carga de Manifiesto JSON" ($null -ne $argosPlugin -and $argosPlugin.Version -eq "3.0.0")
 
