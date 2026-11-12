@@ -188,7 +188,7 @@ Update-Module -Name ArgosCCF
 If you discover a security vulnerability:
 
 1. **DO NOT** create a public GitHub issue
-2. Email: `32666182+damdavidprieto@users.noreply.github.com` (update with actual contact)
+2. Private report: [Report a vulnerability](https://github.com/damdavidprieto/ArgosCCF/security/advisories/new)
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce
