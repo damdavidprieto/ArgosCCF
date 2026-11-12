@@ -14,9 +14,9 @@ We take security vulnerabilities seriously. If you discover a security issue, pl
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 
-Instead, please report them via email to `32666182+damdavidprieto@users.noreply.github.com` (Placeholder - confirm contact info).
+Instead, please use GitHub's private vulnerability reporting: [Report a vulnerability](https://github.com/damdavidprieto/ArgosCCF/security/advisories/new).
 
-You should receive a response within 48 hours. If for some reason you do not, please follow up via email to ensure we received your original message.
+You can expect an initial response within a few days. If you do not hear back, please add a note to your private report.
 
 ## Security Features
 

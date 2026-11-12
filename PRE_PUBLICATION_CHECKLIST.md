@@ -86,7 +86,7 @@
 ## ⚠️ Pre-Publication Actions Required
 
 ### 1. Update Contact Information
-- [ ] Verify email in SECURITY.md: `32666182+damdavidprieto@users.noreply.github.com`
+- [ ] Verify private vulnerability reporting is enabled (see SECURITY.md)
 - [ ] Confirm this is the correct contact for security issues
 
 ### 2. Review Module Description
