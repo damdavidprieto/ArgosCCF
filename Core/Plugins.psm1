@@ -5,6 +5,12 @@ function Confirm-CCFPluginSignature {
     # Asegurar que el archivo existe
     if (-not (Test-Path $Path)) { return @{ Valid = $false; Status = "FileNotFound" } }
 
+    # Authenticode solo existe en Windows. En Linux/macOS no se puede verificar la firma,
+    # asi que se falla de forma segura: el plugin se considera NO firmado (no valido).
+    if (-not (Get-Command "Get-AuthenticodeSignature" -ErrorAction SilentlyContinue)) {
+        return @{ Valid = $false; Status = "NotSupportedOnPlatform" }
+    }
+
     $sig = Get-AuthenticodeSignature -FilePath $Path
     # En desarrollo, "Valid" es lo ideal, pero "UnknownError" suele indicar falta de cadena de confianza (cert auto-firmado)
     # Sin embargo, para v1.3 exigiremos "Valid" para ser estrictos.
