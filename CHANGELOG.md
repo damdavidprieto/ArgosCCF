@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-11-13
+
+### Fixed
+- **Exports**: the Core files were imported as separate global modules (`Logging`, `Configuration`,
+  `Plugins`, `Execution`), so `Get-Command -Module ArgosCCF` listed only 2 functions and those generic
+  module names could clash with other modules. They are now loaded into ArgosCCF's own scope and the
+  module exports its 31 functions and 16 aliases.
+- **Missing functions**: `Write-CCFSecurityRecord`, `Write-CCFAuditRecord` and the aliases `Log-Attack`,
+  `Log-Audit`, `Test-CCFHighEntropy` were documented and listed in the manifest but did not exist.
+  Added, together with `Remove-CCFOldLog` (alias `Remove-OldCCFLogs`). `Merge-CCFConfig`,
+  `Set-CCFLogLevel` and `Confirm-CCFPluginSignature` are now exported.
+- **Redaction**: `Protect-CCFSensitiveData` returned `PSCustomObject` input as a plain string instead of
+  redacting it, and did not mark values beyond the depth limit (`[DEPTH-LIMIT]`).
+- **Parallel execution**: `Invoke-CCFParallel` returned results in completion order and leaked internal
+  `PowerShell` objects into its output; results now come back in input order.
+- **Plugins**: hooks (`Before-Execute`, `After-Execute`) were loaded by dot-sourcing the plugin, which ran
+  its main code twice; they are now read from the script's syntax tree. Sandboxed runs also leaked a
+  `PowerShell` object into the result and now dispose their runspace.
+- **All-users installs**: importing the module threw when it could not create `Logs` inside a read-only
+  module folder (such as `Program Files`). Logs now fall back to a per-user folder.
+- **Windows PowerShell 5.1**: source files with non-ASCII characters are saved as UTF-8 with BOM.
+- Removed a debug line that printed the log target on every write.
+
+### Changed
+- `Initialize-CCFLogger -JsonOutput` writes one JSON object per line.
+- The level shortcuts (`Write-CCFLogInfo`, ...) have named `-Message` and `-Data` parameters; the
+  positional form still works.
+- Paths use forward slashes, so configuration loading works on Linux and macOS.
+- Tests: the demo scripts in `Tests/Integration` and `Tests/E2E` (which logged results instead of
+  asserting them) were replaced by Pester tests. 52 tests, run in CI on Windows, Linux and macOS
+  (PowerShell 7) and on Windows PowerShell 5.1.
+- Packaging: `build.ps1` builds `output/ArgosCCF` with only the runtime files, and the `Publish`
+  workflow publishes that folder. Version 1.3.0 had been packed from the repository root and included
+  `.git`, tests, docs and test plugins. Removed `ArgosCCF.nuspec`, `Core/diagnostic.ps1` and the test
+  plugins from `Plugins/`.
+- Removed the self-assessed audit reports from `Docs/`.
+
 ## [1.3.0] - 2026-01-21
 
 ### 💎 Professional Grade Refactoring (Fase 5)

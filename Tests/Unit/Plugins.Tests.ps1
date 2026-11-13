@@ -1,6 +1,6 @@
 Describe "ArgosCCF: Motor de Plugins (Professional API)" {
     BeforeAll {
-        $manifest = Join-Path $PSScriptRoot "..\..\ArgosCCF.psd1"
+        $manifest = Join-Path $PSScriptRoot "../../ArgosCCF.psd1"
         Import-Module $manifest -Force
     }
 
@@ -16,12 +16,17 @@ Describe "ArgosCCF: Motor de Plugins (Professional API)" {
 
     Context "Sandboxing" {
         It "Debe forzar el modo de lenguaje restringido" {
-            $tmp = Join-Path $env:TEMP "SandboxTest.ps1"
+            # Plugins only run from the Plugins folder (location check), so the probe goes there.
+            $tmp = Join-Path (Get-CCFPath -Target "Plugins") "SandboxTest_$([guid]::NewGuid().ToString('N')).ps1"
             'param($Arguments) return $ExecutionContext.SessionState.LanguageMode' | Set-Content $tmp
-            $p = [PSCustomObject]@{ Name = "SandboxTest"; Path = $tmp }
-            $res = Invoke-CCFPlugin -Plugin $p -HardenedMode
-            $res | Should -Be "ConstrainedLanguage"
-            if (Test-Path $tmp) { Remove-Item $tmp }
+            try {
+                $p = [PSCustomObject]@{ Name = "SandboxTest"; Path = $tmp }
+                $res = Invoke-CCFPlugin -Plugin $p -HardenedMode
+                $res | Should -Be "ConstrainedLanguage"
+            }
+            finally {
+                Remove-Item $tmp -ErrorAction SilentlyContinue
+            }
         }
     }
 

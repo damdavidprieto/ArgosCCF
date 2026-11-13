@@ -1,4 +1,4 @@
-<#
+﻿<#
     .SYNOPSIS
     CCF Configuration Manager - Deep Merge & Layered (Optimized)
     
@@ -67,9 +67,9 @@ function Get-CCFConfig {
     }
 
     $configRoot = Get-CCFPath -Target "Configs"
-    $factoryPath = Join-Path $configRoot "Factory\$ConfigName.json"
+    $factoryPath = Join-Path $configRoot "Factory/$ConfigName.json"
     $presetsPath = Join-Path $configRoot "Presets"
-    $userPath = Join-Path $configRoot "User\$ConfigName.json"
+    $userPath = Join-Path $configRoot "User/$ConfigName.json"
     
     $finalConfig = [PSCustomObject]@{}
     
@@ -207,4 +207,3 @@ function Test-CCFConfigSchema {
 # --- Alias de Retrocompatibilidad ---
 New-Alias -Name Clear-CCFConfigCache -Value Remove-CCFConfigCache
 
-Export-ModuleMember -Function Get-CCFConfig, Set-CCFUserConfig, Remove-CCFConfigCache, Test-CCFConfigSchema -Alias *

@@ -3,7 +3,7 @@
     RootModule        = 'ArgosCCF.psm1'
 
     # Version number of this module.
-    ModuleVersion     = '1.3.0'
+    ModuleVersion     = '1.4.0'
 
     # ID used to uniquely identify this module
     GUID              = 'a4ce1d7d-c89a-46eb-9a85-5edccd5dab32'
@@ -23,9 +23,14 @@
     # Minimum version of the Windows PowerShell engine required by this module
     PowerShellVersion = '5.1'
 
+    # Supported PSEditions
+    CompatiblePSEditions = @('Desktop', 'Core')
+
     # Functions to export from this module, for best performance, do not use wildcards
     FunctionsToExport = @(
         'Get-CCFPath',
+        'Initialize-CCFEnvironment',
+        'Set-CCFLogLevel',
         'Register-CCFLogProvider',
         'Register-CCFSIEMProvider',
         'Initialize-CCFLogger',
@@ -40,19 +45,20 @@
         'Write-CCFSecurityRecord',
         'Write-CCFAuditRecord',
         'Write-CCFErrorRecord',
+        'Remove-CCFOldLog',
+        'Protect-CCFSensitiveData',
+        'Test-CCFEntropyContent',
+        'Test-CCFHealth',
+        'Submit-CCFHeartbeat',
         'Get-CCFConfig',
         'Set-CCFUserConfig',
+        'Merge-CCFConfig',
         'Remove-CCFConfigCache',
         'Test-CCFConfigSchema',
         'Get-CCFPlugins',
         'Invoke-CCFPlugin',
         'Confirm-CCFPluginSignature',
-        'Invoke-CCFParallel',
-        'Test-CCFHealth',
-        'Submit-CCFHeartbeat',
-        'Initialize-CCFEnvironment',
-        'Protect-CCFSensitiveData',
-        'Test-CCFEntropyContent'
+        'Invoke-CCFParallel'
     )
 
     # Cmdlets to export from this module
@@ -64,8 +70,8 @@
     # Aliases to export from this module
     AliasesToExport   = @(
         'Log-Info', 'Log-Success', 'Log-Warn', 'Log-Error', 'Log-Critical', 'Log-Debug', 'Log-Header',
-        'Init-CCFLogger', 'Catch-CCFError', 'Log-Attack', 'Log-Audit', 'Redact-CCFSensitiveData',
-        'Clear-CCFConfigCache', 'Test-CCFPluginSignature', 'Test-CCFHighEntropy'
+        'Log-Attack', 'Log-Audit', 'Init-CCFLogger', 'Catch-CCFError', 'Redact-CCFSensitiveData',
+        'Test-CCFHighEntropy', 'Remove-OldCCFLogs', 'Clear-CCFConfigCache', 'Test-CCFPluginSignature'
     )
 
     # Private data to pass to the module specified in RootModule/ModuleToProcess

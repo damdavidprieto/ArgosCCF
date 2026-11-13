@@ -1,6 +1,6 @@
 ﻿Describe "ArgosCCF: Motor de Logging (Professional API)" {
     BeforeAll {
-        $manifest = Join-Path $PSScriptRoot "..\..\ArgosCCF.psd1"
+        $manifest = Join-Path $PSScriptRoot "../../ArgosCCF.psd1"
         Import-Module $manifest -Force
     }
 

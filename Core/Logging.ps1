@@ -1,4 +1,4 @@
-<#
+﻿<#
     .SYNOPSIS
     CCF Logging Engine - Professional & Decoupled
     
@@ -87,9 +87,12 @@ function Protect-CCFSensitiveData {
         [int]$Depth = 0
     )
     
-    if ($Depth -gt 5 -or $null -eq $InputData) { return $InputData }
-    
+    if ($null -eq $InputData) { return $InputData }
+    if ($Depth -gt 5) { return "[DEPTH-LIMIT]" }
+
     $secretsRegex = Get-CCFSecretsRegex
+    $isHashtable = $InputData -is [hashtable]
+    $isCustomObject = $InputData -is [System.Management.Automation.PSCustomObject]
     
     if ($InputData -is [string]) {
         if ($InputData -match "$secretsRegex\s*[:=]\s*(\S+)") {
@@ -101,33 +104,38 @@ function Protect-CCFSensitiveData {
         }
         return $InputData
     }
-    elseif ($InputData -is [hashtable] -or $InputData -is [PSCustomObject]) {
-        if ($null -ne $InputData -and ($InputData.GetType().FullName -match "System\.Reflection|System\.Management|System\.Runtime")) {
-            return $InputData.ToString()
-        }
+    elseif ($isHashtable -or $isCustomObject) {
+        # Ordered output keeps hashtables and objects in their original key order.
+        $newData = [ordered]@{}
+        $props = if ($isHashtable) { @($InputData.Keys) } else { $InputData.PSObject.Properties.Name }
 
-        $newData = if ($InputData -is [hashtable]) { @{} } else { [PSCustomObject]@{} }
-        $props = if ($InputData -is [hashtable]) { $InputData.Keys } else { $InputData.PSObject.Properties.Name }
-        
         foreach ($prop in $props) {
-            if ($prop -eq "PSObject" -or $prop -eq "PSStandardMembers") { continue }
-            $val = try { if ($InputData -is [hashtable]) { $InputData[$prop] } else { $InputData.$prop } } catch { $null }
-            
+            $val = if ($isHashtable) { $InputData[$prop] } else { $InputData.$prop }
+
             $isSecret = $prop -match $secretsRegex
             if ($val -is [string] -and (Test-CCFEntropyContent -String $val)) { $isSecret = $true }
-            
+
             if ($isSecret) {
-                if ($InputData -is [hashtable]) { $newData[$prop] = "[REDACTED]" } else { $newData | Add-Member -NotePropertyName $prop -NotePropertyValue "[REDACTED]" -Force }
+                $newData[$prop] = "[REDACTED]"
             }
-            elseif ($val -is [hashtable] -or $val -is [PSCustomObject]) {
-                $redactedVal = Protect-CCFSensitiveData -InputData $val -Depth ($Depth + 1)
-                if ($InputData -is [hashtable]) { $newData[$prop] = $redactedVal } else { $newData | Add-Member -NotePropertyName $prop -NotePropertyValue $redactedVal -Force }
+            elseif ($Depth -ge 5 -and $null -ne $val) {
+                # Values nested deeper than five levels are not inspected, and not logged either.
+                $newData[$prop] = "[DEPTH-LIMIT]"
+            }
+            elseif ($val -is [hashtable] -or $val -is [System.Management.Automation.PSCustomObject]) {
+                $newData[$prop] = Protect-CCFSensitiveData -InputData $val -Depth ($Depth + 1)
             }
             else {
-                if ($InputData -is [hashtable]) { $newData[$prop] = $val } else { $newData | Add-Member -NotePropertyName $prop -NotePropertyValue $val -Force }
+                $newData[$prop] = $val
             }
         }
-        return $newData
+
+        if ($isHashtable) {
+            $result = @{}
+            foreach ($key in $newData.Keys) { $result[$key] = $newData[$key] }
+            return $result
+        }
+        return [PSCustomObject]$newData
     }
     return $InputData
 }
@@ -145,12 +153,30 @@ function Test-CCFHealth {
         Checks    = @()
     }
 
-    $coreModules = @("Logging", "Configuration", "Execution", "Plugins")
-    foreach ($mod in $coreModules) {
-        $loaded = $null -ne (Get-Module -Name $mod)
-        $report.Checks += @{ Target = "Module:$mod"; Pass = $loaded }
+    # One representative command per Core component.
+    $components = [ordered]@{
+        Logging       = "Write-CCFLog"
+        Configuration = "Get-CCFConfig"
+        Execution     = "Invoke-CCFParallel"
+        Plugins       = "Invoke-CCFPlugin"
+    }
+    foreach ($name in $components.Keys) {
+        $loaded = $null -ne (Get-Command -Name $components[$name] -ErrorAction SilentlyContinue)
+        $report.Checks += @{ Target = "Component:$name"; Pass = $loaded }
         if (-not $loaded) { $report.Status = "DEGRADED" }
     }
+
+    $logDir = Get-CCFPath -Target "Logs"
+    $logsWritable = $false
+    try {
+        $probe = Join-Path $logDir ".ccf_health_probe"
+        "probe" | Out-File $probe -ErrorAction Stop
+        Remove-Item $probe -ErrorAction SilentlyContinue
+        $logsWritable = $true
+    }
+    catch { }
+    $report.Checks += @{ Target = "LogsWritable"; Pass = $logsWritable }
+    if (-not $logsWritable -and $report.Status -eq "OK") { $report.Status = "DEGRADED" }
 
     return [PSCustomObject]$report
 }
@@ -167,12 +193,14 @@ function Initialize-CCFLogger {
     param(
         [string]$FileName = "CCF_Session.log",
         [int]$MaxMB = 10,
-        [int]$MaxRolling = 5
+        [int]$MaxRolling = 5,
+        [switch]$JsonOutput
     )
-    
+
+    $script:JsonOutput = [bool]$JsonOutput
     $script:CCFSystemMeta = [ordered]@{
         Hostname = $env:COMPUTERNAME
-        Version  = "1.3.0"
+        Version  = "$($MyInvocation.MyCommand.Module.Version)"
         Engine   = "ArgosCCF"
     }
 
@@ -265,7 +293,6 @@ function Write-CCFLog {
     }
 
     if ($null -ne $targetFile) {
-        Write-Host "[DEBUG-LOG] Target: '$targetFile'" -ForegroundColor Cyan
         $outMsg = if ($script:JsonOutput) { $logEntry | ConvertTo-Json -Depth 5 -Compress } else { "[$timestamp] [$Level] [$Category] $cleanMessage" }
         try {
             $parent = Split-Path $targetFile -Parent
@@ -284,15 +311,109 @@ function Write-CCFErrorRecord {
     Write-CCFLog -Message "[$Context] $($ErrorRecord.Exception.Message)" -Level "ERROR" -Category "Errors" -Data $data
 }
 
-function Write-CCFLogInfo ($m, $d = @{}) { Write-CCFLog $m -Level "INFO" -Data $d }
-function Write-CCFLogSuccess ($m, $d = @{}) { Write-CCFLog $m -Level "SUCCESS" -Data $d }
-function Write-CCFLogWarn ($m, $d = @{}) { Write-CCFLog $m -Level "WARN" -Data $d }
-function Write-CCFLogError ($m, $d = @{}) { Write-CCFLog $m -Level "ERROR" -Data $d }
-function Write-CCFLogCritical ($m, $d = @{}) { Write-CCFLog $m -Level "CRITICAL" -Data $d }
-function Write-CCFLogDebug ($m, $d = @{}) { Write-CCFLog $m -Level "DEBUG" -Data $d }
-function Write-CCFLogHeader ($m) { Write-CCFLog $m -Level "INFO" -Color "Cyan" }
+# Level shortcuts. The first two positions match the old ($m, $d) signature.
+function Write-CCFLogInfo {
+    param([Parameter(Mandatory = $true, Position = 0)][string]$Message, [Parameter(Position = 1)][hashtable]$Data = @{})
+    Write-CCFLog $Message -Level "INFO" -Data $Data
+}
+function Write-CCFLogSuccess {
+    param([Parameter(Mandatory = $true, Position = 0)][string]$Message, [Parameter(Position = 1)][hashtable]$Data = @{})
+    Write-CCFLog $Message -Level "SUCCESS" -Data $Data
+}
+function Write-CCFLogWarn {
+    param([Parameter(Mandatory = $true, Position = 0)][string]$Message, [Parameter(Position = 1)][hashtable]$Data = @{})
+    Write-CCFLog $Message -Level "WARN" -Data $Data
+}
+function Write-CCFLogError {
+    param([Parameter(Mandatory = $true, Position = 0)][string]$Message, [Parameter(Position = 1)][hashtable]$Data = @{})
+    Write-CCFLog $Message -Level "ERROR" -Data $Data
+}
+function Write-CCFLogCritical {
+    param([Parameter(Mandatory = $true, Position = 0)][string]$Message, [Parameter(Position = 1)][hashtable]$Data = @{})
+    Write-CCFLog $Message -Level "CRITICAL" -Data $Data
+}
+function Write-CCFLogDebug {
+    param([Parameter(Mandatory = $true, Position = 0)][string]$Message, [Parameter(Position = 1)][hashtable]$Data = @{})
+    Write-CCFLog $Message -Level "DEBUG" -Data $Data
+}
+function Write-CCFLogHeader {
+    param([Parameter(Mandatory = $true, Position = 0)][string]$Message)
+    Write-CCFLog $Message -Level "INFO" -Color "Cyan"
+}
 
-# Alias para Bridge
+# --- Registros de seguridad y auditoría ---
+function Write-CCFSecurityRecord {
+    <#
+    .SYNOPSIS
+        Records a security event (attack attempt, blocked action) in Logs/CCF_Security.log.
+    .EXAMPLE
+        Write-CCFSecurityRecord -Type "PathTraversal" -Source "UserInput" -Payload "../../etc/passwd"
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Type,
+        [Parameter(Mandatory = $true)][string]$Source,
+        [string]$Payload = "",
+        [ValidateSet("WARN", "ERROR", "CRITICAL")][string]$Severity = "WARN",
+        [hashtable]$Metadata = @{}
+    )
+    $data = @{ Type = $Type; Source = $Source; Payload = $Payload; Metadata = $Metadata }
+    Write-CCFLog -Message "[SECURITY] $Type from $Source" -Level $Severity -Category "Security" -Data $data
+}
+
+function Write-CCFAuditRecord {
+    <#
+    .SYNOPSIS
+        Records an audit event (who did what, on which resource) in Logs/CCF_Audit.log.
+    .EXAMPLE
+        Write-CCFAuditRecord -Action "FileDeletion" -User "admin" -Resource "C:\Data\db.bak"
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Action,
+        [Parameter(Mandatory = $true)][string]$User,
+        [string]$Resource = "",
+        [ValidateSet("Success", "Failure")][string]$Outcome = "Success",
+        [hashtable]$Metadata = @{}
+    )
+    $data = @{ Action = $Action; User = $User; Resource = $Resource; Outcome = $Outcome; Metadata = $Metadata }
+    Write-CCFLog -Message ("[AUDIT] $User $Action $Resource".Trim()) -Level "INFO" -Category "Audit" -Data $data
+}
+
+# --- Mantenimiento de logs ---
+function Remove-CCFOldLog {
+    <#
+    .SYNOPSIS
+        Deletes log files older than -DaysToKeep from the Logs folder, optionally zipping them first.
+    .EXAMPLE
+        Remove-CCFOldLog -DaysToKeep 30 -CompressBeforeDelete
+    #>
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [ValidateRange(0, 3650)][int]$DaysToKeep = 30,
+        [switch]$CompressBeforeDelete
+    )
+
+    $logDir = Get-CCFPath -Target "Logs"
+    if (-not (Test-Path $logDir)) { return @() }
+
+    $cutoff = (Get-Date).AddDays(-$DaysToKeep)
+    $oldFiles = @(Get-ChildItem -Path $logDir -File |
+        Where-Object { $_.Name -match '\.log(\.\d+)?$' -and $_.LastWriteTime -lt $cutoff })
+    if ($oldFiles.Count -eq 0) { return @() }
+
+    if ($CompressBeforeDelete -and $PSCmdlet.ShouldProcess($logDir, "Compress $($oldFiles.Count) log file(s)")) {
+        $archive = Join-Path $logDir ("CCF_Archive_{0}.zip" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
+        Compress-Archive -Path $oldFiles.FullName -DestinationPath $archive -Force
+    }
+
+    foreach ($file in $oldFiles) {
+        if ($PSCmdlet.ShouldProcess($file.FullName, "Delete")) {
+            Remove-Item -LiteralPath $file.FullName -Force
+        }
+    }
+    return $oldFiles.Name
+}
+
+# Alias de retrocompatibilidad
 New-Alias -Name Log-Info -Value Write-CCFLogInfo -Description "Alias para Write-CCFLogInfo"
 New-Alias -Name Log-Success -Value Write-CCFLogSuccess
 New-Alias -Name Log-Warn -Value Write-CCFLogWarn
@@ -300,10 +421,10 @@ New-Alias -Name Log-Error -Value Write-CCFLogError
 New-Alias -Name Log-Critical -Value Write-CCFLogCritical
 New-Alias -Name Log-Debug -Value Write-CCFLogDebug
 New-Alias -Name Log-Header -Value Write-CCFLogHeader
+New-Alias -Name Log-Attack -Value Write-CCFSecurityRecord
+New-Alias -Name Log-Audit -Value Write-CCFAuditRecord
 New-Alias -Name Init-CCFLogger -Value Initialize-CCFLogger
 New-Alias -Name Catch-CCFError -Value Write-CCFErrorRecord
 New-Alias -Name Redact-CCFSensitiveData -Value Protect-CCFSensitiveData
-
-Export-ModuleMember -Function Set-CCFLogLevel, Register-CCFLogProvider, Register-CCFSIEMProvider, Initialize-CCFLogger, Write-CCFLog, Write-CCFErrorRecord, `
-    Write-CCFLogInfo, Write-CCFLogSuccess, Write-CCFLogWarn, Write-CCFLogError, Write-CCFLogCritical, Write-CCFLogDebug, Write-CCFLogHeader, `
-    Test-CCFHealth, Submit-CCFHeartbeat, Protect-CCFSensitiveData -Alias *
+New-Alias -Name Test-CCFHighEntropy -Value Test-CCFEntropyContent
+New-Alias -Name Remove-OldCCFLogs -Value Remove-CCFOldLog

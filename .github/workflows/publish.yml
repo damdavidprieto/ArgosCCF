@@ -1,55 +1,47 @@
-name: Publish to PowerShell Gallery
+name: Publish
+
+# Publishes output/ArgosCCF (never the repository root) to the PowerShell Gallery when a
+# version tag is pushed, e.g. `git tag v1.4.0 && git push origin v1.4.0`.
+# Needs the PSGALLERY_API_KEY repository secret: a Gallery API key scoped to ArgosCCF only.
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    tags: [ 'v*' ]
 
 permissions:
   contents: write
 
 jobs:
   publish:
-    name: Publish Module
     runs-on: windows-latest
-    
+    environment: psgallery
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Install Dependencies
-      shell: pwsh
-      run: |
-        Install-Module -Name Pester -Force -SkipPublisherCheck -Scope CurrentUser
-        Install-Module -Name PSScriptAnalyzer -Force -SkipPublisherCheck -Scope CurrentUser
-    
-    - name: Run Tests
-      shell: pwsh
-      run: |
-        .\build.ps1
-    
-    - name: Validate Module
-      shell: pwsh
-      run: |
-        Test-ModuleManifest -Path .\ArgosCCF.psd1
-        Import-Module .\ArgosCCF.psd1 -Force
-        $commands = Get-Command -Module ArgosCCF
-        Write-Host "Module exports $($commands.Count) functions"
-    
-    - name: Publish to PowerShell Gallery
-      shell: pwsh
-      env:
-        NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-      run: |
-        if (-not $env:NUGET_API_KEY) {
-          Write-Warning "NUGET_API_KEY not set - skipping publish"
-          exit 0
-        }
-        Publish-Module -Path . -NuGetApiKey $env:NUGET_API_KEY -Verbose
-    
-    - name: Create GitHub Release
-      shell: pwsh
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        gh release create "${{ github.ref_name }}" --title "ArgosCCF ${{ github.ref_name }}" --notes "See CHANGELOG.md for details: https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md"
+      - uses: actions/checkout@v4
+
+      - name: Analyze, test and build
+        shell: pwsh
+        run: |
+          Install-Module Pester -MinimumVersion 5.0.0 -MaximumVersion 5.99.99 -Force -SkipPublisherCheck -Scope CurrentUser
+          Install-Module PSScriptAnalyzer -Force -SkipPublisherCheck -Scope CurrentUser
+          ./build.ps1
+
+      - name: Check the tag matches the manifest version
+        shell: pwsh
+        run: |
+          $version = (Import-PowerShellDataFile ./output/ArgosCCF/ArgosCCF.psd1).ModuleVersion
+          if ("v$version" -ne $env:GITHUB_REF_NAME) { throw "Tag $env:GITHUB_REF_NAME does not match ModuleVersion $version" }
+
+      - name: Publish to the PowerShell Gallery
+        shell: pwsh
+        env:
+          PSGALLERY_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+        run: |
+          if (-not $env:PSGALLERY_API_KEY) { throw 'PSGALLERY_API_KEY secret is not set' }
+          Publish-PSResource -Path ./output/ArgosCCF -Repository PSGallery -ApiKey $env:PSGALLERY_API_KEY
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$env:GITHUB_REF_NAME" --title "ArgosCCF $env:GITHUB_REF_NAME" --notes "See CHANGELOG.md: https://github.com/$env:GITHUB_REPOSITORY/blob/main/CHANGELOG.md"
