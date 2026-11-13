@@ -18,7 +18,7 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Pester and PSScriptAnalyzer
         shell: pwsh
@@ -34,7 +34,7 @@ jobs:
     name: Tests and Install-Module on Windows PowerShell 5.1
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build and pack into a local repository (PowerShell 7)
         shell: pwsh
