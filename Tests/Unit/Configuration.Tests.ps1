@@ -1,6 +1,6 @@
-Describe "ArgosCCF: Motor de Configuración (Professional API)" {
+﻿Describe "ArgosCCF: Motor de Configuración (Professional API)" {
     BeforeAll {
-        $manifest = Join-Path $PSScriptRoot "..\..\ArgosCCF.psd1"
+        $manifest = Join-Path $PSScriptRoot "../../ArgosCCF.psd1"
         Import-Module $manifest -Force
     }
 

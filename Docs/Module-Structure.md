@@ -9,12 +9,12 @@ ArgosCCF or when structuring your own module.
 ```
 ArgosCCF/
 ├── ArgosCCF.psd1        # Manifest: version, exported functions and aliases, Gallery metadata
-├── ArgosCCF.psm1        # Root module: environment initialisation, imports Core/*
-├── Core/                # Internal modules
-│   ├── Configuration.psm1   # Layered config (Factory / Preset / User), deep merge, cache
-│   ├── Execution.psm1       # Runspace-pool parallel execution
-│   ├── Logging.psm1         # Structured logging, rotation, secret redaction
-│   └── Plugins.psm1         # Plugin discovery, signature check, sandboxing
+├── ArgosCCF.psm1        # Root module: environment initialisation, dot-sources Core/*
+├── Core/                # Function files, loaded into the module's own scope
+│   ├── Configuration.ps1    # Layered config (Factory / Preset / User), deep merge, cache
+│   ├── Execution.ps1        # Runspace-pool parallel execution
+│   ├── Logging.ps1          # Structured logging, security/audit records, redaction, retention
+│   └── Plugins.ps1          # Plugin discovery, signature check, sandboxing
 ├── Configs/             # Factory defaults and user overrides
 ├── Plugins/             # Plugin scripts
 ├── Tests/               # Pester: Unit/, Integration/, E2E/
@@ -25,7 +25,7 @@ ArgosCCF/
 ```
 
 The general rule: one manifest, one thin root module, and the real logic split into
-`Core/*.psm1` files by responsibility.
+`Core/*.ps1` files by responsibility.
 
 ## 1. The manifest (`.psd1`)
 
@@ -78,22 +78,26 @@ Test-ModuleManifest -Path .\MyModule.psd1
 
 ## 2. The root module (`.psm1`)
 
-Keep it small: initialise state, import the internal modules, and let the manifest decide
-what is exported.
+Keep it small: initialise state, dot-source the Core files and export the public functions.
 
 ```powershell
-$script:ModuleRoot = $PSScriptRoot
-
-foreach ($name in 'Configuration', 'Logging', 'Execution', 'Plugins') {
-    $path = Join-Path $script:ModuleRoot "Core\$name.psm1"
-    if (Test-Path $path) { Import-Module $path -Force }
+foreach ($coreFile in 'Logging.ps1', 'Configuration.ps1', 'Plugins.ps1', 'Execution.ps1') {
+    . (Join-Path $PSScriptRoot "Core/$coreFile")
 }
+
+Export-ModuleMember -Function @('Write-CCFLog', 'Get-CCFConfig', ...) -Alias @('Log-Info', ...)
 ```
+
+Dot-sourcing keeps every Core function in the module's own scope: they can call each other,
+and only the exported ones are visible. Importing the Core files as separate modules with
+`Import-Module -Global` (what ArgosCCF did up to 1.3.0) leaves extra modules named `Logging`,
+`Configuration`, etc. in the user's session and makes `Get-Command -Module ArgosCCF` show
+almost nothing.
 
 ArgosCCF's root module also resolves its own root folder, so the module works whether it is
 loaded from a clone or from `PSModulePath`. It tries the folder the module was loaded from
-first, then the `ARGOS_CCF_ROOT` environment variable. It then creates `Configs`, `Logs` and
-`Plugins` if they are missing, and checks that `Logs` is writable:
+first, then the `ARGOS_CCF_ROOT` environment variable. Logs go to `Logs` next to the module,
+or to a per-user folder when the module folder is read-only (an all-users install):
 
 ```powershell
 $script:ArgosCCFRoot = (Get-Item $PSScriptRoot).FullName
@@ -158,15 +162,14 @@ Tests use [Pester 5](https://pester.dev/) and are split by scope:
 
 | Folder | What it covers |
 |---|---|
-| `Tests/Unit` | Each `Core` module (configuration, execution, logging, plugins) |
-| `Tests/Integration` | Several modules together: hardening, forensics, performance |
-| `Tests/E2E` | Full scenarios, such as signed and unsigned plugins |
+| `Tests/Unit` | Each Core area (configuration, execution, logging, plugins) and the manifest: exports match the module, source files have a UTF-8 BOM |
+| `Tests/Integration` | End to end: what reaches the log files (redaction, JSON, security and audit records, retention) and plugin execution (manifests, hooks, location and signature policies) |
 
 A minimal test file:
 
 ```powershell
 BeforeAll {
-    Import-Module (Join-Path $PSScriptRoot '..\..\ArgosCCF.psd1') -Force
+    Import-Module (Join-Path $PSScriptRoot '../../ArgosCCF.psd1') -Force
 }
 
 Describe 'Module loading' {
@@ -184,12 +187,14 @@ Invoke-Pester -Path .\Tests -Output Detailed
 
 ## 7. Continuous integration and publishing
 
-- `.github/workflows/ci.yml` runs on Windows, Linux and macOS for every push and pull
-  request: PSScriptAnalyzer (errors fail the build), `Test-ModuleManifest`, an import check
-  that the module exports its functions, and the E2E security tests.
-- `.github/workflows/publish.yml` publishes to the PowerShell Gallery. The API key lives
-  in the `NUGET_API_KEY` repository secret and reaches `Publish-Module` as an environment
-  variable.
+- `build.ps1` runs PSScriptAnalyzer and Pester, then copies only the runtime files
+  (manifest, root module, `Core`, `Configs/Factory`, `Plugins/Examples`, `LICENSE`, `README.md`)
+  into `output/ArgosCCF`. That folder is what gets published, never the repository root.
+- `.github/workflows/ci.yml` runs `build.ps1` on Windows, Linux and macOS (PowerShell 7), and
+  on Windows PowerShell 5.1 runs the Pester suite, installs the built package with
+  `Install-Module` from a local repository and checks the module auto-loads.
+- `.github/workflows/publish.yml` publishes `output/ArgosCCF` when a `v*` tag is pushed. The
+  API key lives in the `PSGALLERY_API_KEY` repository secret.
 
 Never write a Gallery API key in a script or commit it. If one is ever exposed, revoke it
 on powershellgallery.com and create a new one.
@@ -205,7 +210,9 @@ Invoke-Pester -Path .\Tests
 ## Checklist
 
 - [ ] Manifest with explicit `FunctionsToExport` and `AliasesToExport`
-- [ ] Thin root module; logic in `Core/*.psm1`
+- [ ] Thin root module; logic in `Core/*.ps1`, dot-sourced
+- [ ] Source files with non-ASCII text saved as UTF-8 with BOM (Windows PowerShell 5.1)
+- [ ] Publish a build output folder, never the repository root
 - [ ] No hard-coded machine paths; use `$PSScriptRoot` or environment variables
 - [ ] Approved verbs (`Get-Verb`); old names kept as aliases
 - [ ] SemVer, `CHANGELOG.md` entry and Git tag per release

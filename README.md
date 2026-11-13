@@ -1,10 +1,8 @@
 # ArgosCCF
 
-![ArgosCCF Badge](https://img.shields.io/badge/ArgosCCF-v1.3.0-blueviolet) ![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+![ArgosCCF Badge](https://img.shields.io/badge/ArgosCCF-v1.4.0-blueviolet) ![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
 **ArgosCCF** (formerly CCF) is a professional, open-source PowerShell framework designed for high-integrity automation, secure configuration management, and parallel execution. It provides a robust foundation for building enterprise-grade PowerShell applications with built-in security hardening.
-
-![Architecture Diagram](https://github.com/damdavidprieto/ArgosCCF/raw/main/Docs/architecture_diagram.png)
 
 ## 🚀 Features
 
@@ -37,6 +35,16 @@ Init-CCFLogger -FileName "MyApp.log" -MaxMB 50
 Log-Info "Application started successfully"
 Log-Warn "Low disk space detected"
 ```
+
+### Security and audit records
+```powershell
+Write-CCFSecurityRecord -Type "PathTraversal" -Source "UserInput" -Payload "../../etc/passwd"  # Logs/CCF_Security.log
+Write-CCFAuditRecord -Action "FileDeletion" -User "admin" -Resource "C:\Data\db.bak"            # Logs/CCF_Audit.log
+Remove-CCFOldLog -DaysToKeep 30 -CompressBeforeDelete
+```
+
+Logs go to the module's `Logs` folder, or to `%LOCALAPPDATA%\ArgosCCF\Logs` (`~/.local/share/ArgosCCF/Logs`
+on Linux and macOS) when the module folder is read-only, for example after an all-users install.
 
 ### Configuration
 ```powershell

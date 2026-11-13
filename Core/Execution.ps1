@@ -1,4 +1,4 @@
-<#
+﻿<#
     .SYNOPSIS
     CCF Execution Engine - Parallel Computing (Optimized)
     
@@ -71,16 +71,19 @@ function Invoke-CCFParallel {
     }
     
     try {
+        $index = 0
         foreach ($obj in $InputObjects) {
             $ps = [PowerShell]::Create().AddScript($wrapper)
             $ps.RunspacePool = $rsPool
-            $ps.AddArgument($obj).AddArgument($Arguments).AddArgument($ScriptBlock).AddArgument($RetryCount)
-            
+            $null = $ps.AddArgument($obj).AddArgument($Arguments).AddArgument($ScriptBlock).AddArgument($RetryCount)
+
             $jobs.Add([PSCustomObject]@{
                     PowerShell = $ps
                     Handle     = $ps.BeginInvoke()
                     Target     = $obj
+                    Index      = $index
                 })
+            $index++
         }
         
         while ($jobs.Count -gt 0) {
@@ -89,6 +92,7 @@ function Invoke-CCFParallel {
                 try {
                     $res = $job.PowerShell.EndInvoke($job.Handle)
                     $finalResults.Add([PSCustomObject]@{
+                            Index    = $job.Index
                             Target   = $job.Target
                             Output   = $res.Output
                             Duration = $res.Duration
@@ -120,7 +124,8 @@ function Invoke-CCFParallel {
         
         $totalTimer.Stop()
         Write-CCFLogSuccess "Paralelización finalizada en $([math]::Round($totalTimer.Elapsed.TotalSeconds, 2))s."
-        return $finalResults
+        # Results come back in completion order; return them in input order.
+        return @($finalResults | Sort-Object Index)
     }
     finally {
         if ($null -ne $rsPool) {
@@ -130,4 +135,3 @@ function Invoke-CCFParallel {
     }
 }
 
-Export-ModuleMember -Function Invoke-CCFParallel

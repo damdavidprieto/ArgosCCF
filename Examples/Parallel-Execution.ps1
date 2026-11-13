@@ -1,4 +1,4 @@
-# Parallel Execution Example
+﻿# Parallel Execution Example
 
 <#
 .SYNOPSIS

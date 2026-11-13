@@ -1,4 +1,4 @@
-# --- Descubrimiento de Plugins ---
+﻿# --- Descubrimiento de Plugins ---
 function Confirm-CCFPluginSignature {
     param([Parameter(Mandatory = $true)][string]$Path)
     
@@ -135,18 +135,26 @@ function Invoke-CCFPlugin {
     # Crear un scope aislado para el plugin
     $scriptText = Get-Content $Plugin.Path -Raw
     
+    # Hooks are read from the plugin's AST instead of dot-sourcing the file, so defining
+    # them does not run the plugin's main code a second time.
+    $hooks = @{}
+    if (-not $SkipHooks) {
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($scriptText, [ref]$null, [ref]$null)
+        foreach ($name in "Before-Execute", "After-Execute") {
+            $fn = $ast.Find({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+                }, $false)
+            if ($fn) { $hooks[$name] = $fn.Body.GetScriptBlock() }
+        }
+    }
+
     try {
         # 3. Hook: Before-Execute
-        if (-not $SkipHooks) {
-            if ($scriptText -match "function\s+Before-Execute") {
-                Log-Debug "Ejecutando hook Before-Execute..."
-                # Nota: Los hooks se ejecutan en el Runspace LOCAL por ahora para interactuar con CCF.
-                # Si el plugin es malicioso, el sandbox central lo atrapará en la fase principal.
-                . $Plugin.Path
-                if (Get-Command "Before-Execute" -ErrorAction SilentlyContinue) {
-                    Before-Execute -Arguments $Arguments
-                }
-            }
+        # Nota: Los hooks se ejecutan en el Runspace LOCAL para interactuar con CCF.
+        if ($hooks["Before-Execute"]) {
+            Log-Debug "Ejecutando hook Before-Execute..."
+            $null = & $hooks["Before-Execute"] -Arguments $Arguments
         }
 
         # 4. Ejecución Principal
@@ -154,15 +162,21 @@ function Invoke-CCFPlugin {
         if ($HardenedMode) {
             $rs.Open()
             $ps = [powershell]::Create().AddScript($scriptText)
-            $ps.AddParameter("Arguments", $Arguments)
+            $null = $ps.AddParameter("Arguments", $Arguments)
             $ps.Runspace = $rs
-            $result = $ps.Invoke()
-            # Capturar errores del runspace
-            if ($ps.HadErrors) {
-                # Lanzamos una excepción para que Catch-CCFError la capture
-                throw $ps.Streams.Error[0].Exception
+            try {
+                $result = $ps.Invoke()
+                # Capturar errores del runspace
+                if ($ps.HadErrors) {
+                    # Lanzamos una excepción para que Catch-CCFError la capture
+                    throw $ps.Streams.Error[0].Exception
+                }
             }
-            $rs.Close()
+            finally {
+                $ps.Dispose()
+                $rs.Close()
+                $rs.Dispose()
+            }
             # Aplanar resultado para consistencia (Invoke retorna Colección)
             if ($null -ne $result -and $result.Count -eq 1) { $result = $result[0] }
             elseif ($null -ne $result -and $result.Count -eq 0) { $result = $null }
@@ -173,14 +187,9 @@ function Invoke-CCFPlugin {
         }
         
         # 5. Hook: After-Execute
-        if (-not $SkipHooks) {
-            if ($scriptText -match "function\s+After-Execute") {
-                Log-Debug "Ejecutando hook After-Execute..."
-                if (-not (Get-Command "After-Execute" -ErrorAction SilentlyContinue)) { . $Plugin.Path }
-                if (Get-Command "After-Execute" -ErrorAction SilentlyContinue) {
-                    After-Execute -Result $result
-                }
-            }
+        if ($hooks["After-Execute"]) {
+            Log-Debug "Ejecutando hook After-Execute..."
+            $null = & $hooks["After-Execute"] -Result $result
         }
 
         Log-Success "Plugin $($Plugin.Name) finalizado con éxito."
@@ -195,4 +204,3 @@ function Invoke-CCFPlugin {
 # --- Alias de Retrocompatibilidad ---
 New-Alias -Name Test-CCFPluginSignature -Value Confirm-CCFPluginSignature
 
-Export-ModuleMember -Function Get-CCFPlugins, Invoke-CCFPlugin -Alias *

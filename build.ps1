@@ -1,53 +1,80 @@
-# build.ps1 - ArgosCCF Build & Test Automation
+﻿<#
+.SYNOPSIS
+    Builds ArgosCCF into output/ArgosCCF, ready to install or publish.
 
+.DESCRIPTION
+    Runs PSScriptAnalyzer and the Pester tests, then copies only the files the module
+    needs at runtime into output/ArgosCCF and validates the result. Publish that folder,
+    never the repository root, so tests, docs and .git never reach the Gallery.
+
+.EXAMPLE
+    ./build.ps1
+    ./build.ps1 -SkipTests
+#>
+[CmdletBinding()]
 param(
     [switch]$InstallDependencies,
-    [switch]$SkipTests,
-    [switch]$Publish
+    [switch]$SkipAnalysis,
+    [switch]$SkipTests
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = 'Stop'
+$moduleName = 'ArgosCCF'
+$outputDir = Join-Path $PSScriptRoot "output/$moduleName"
 
-Write-Host "🚀 Starting ArgosCCF Build..." -ForegroundColor Cyan
+# Files and folders the module needs at runtime.
+$runtimeItems = @(
+    "$moduleName.psd1",
+    "$moduleName.psm1",
+    'LICENSE',
+    'README.md',
+    'Core',
+    'Configs/Factory',
+    'Plugins/Examples'
+)
 
 if ($InstallDependencies) {
-    Write-Host "📦 Installing dependencies (Pester, PSScriptAnalyzer)..." -ForegroundColor Yellow
-    Install-Module Pester -Force -SkipPublisherCheck -ErrorAction SilentlyContinue
-    Install-Module PSScriptAnalyzer -Force -SkipPublisherCheck -ErrorAction SilentlyContinue
+    Install-Module Pester -MinimumVersion 5.0.0 -Force -SkipPublisherCheck -Scope CurrentUser
+    Install-Module PSScriptAnalyzer -Force -SkipPublisherCheck -Scope CurrentUser
 }
 
-# 1. Static Code Analysis
-Write-Host "🔍 Running PSScriptAnalyzer..." -ForegroundColor Cyan
-$saResults = Invoke-ScriptAnalyzer -Path "$PSScriptRoot" -Recurse -Severity Error, Warning
-if ($saResults) {
-    $saResults | Format-Table
-    if ($saResults | Where-Object { $_.Severity -eq "Error" }) {
-        Write-Error "Build Failed: PSScriptAnalyzer found errors."
+if (-not $SkipAnalysis) {
+    Write-Host 'Running PSScriptAnalyzer...' -ForegroundColor Cyan
+    $issues = Invoke-ScriptAnalyzer -Path $PSScriptRoot -Recurse -Severity Error
+    if ($issues) {
+        $issues | Format-Table -AutoSize
+        throw "PSScriptAnalyzer found $($issues.Count) error(s)."
     }
 }
-else {
-    Write-Host "✅ Code Analysis Passed." -ForegroundColor Green
-}
 
-# 2. Testing
 if (-not $SkipTests) {
-    Write-Host "🧪 Running Pester Tests..." -ForegroundColor Cyan
-    $pester = Invoke-Pester -Path "$PSScriptRoot\Tests" -PassThru -Output Detailed
-    if ($pester.FailedCount -gt 0) {
-        Write-Error "Build Failed: $($pester.FailedCount) tests failed."
+    Write-Host 'Running Pester tests...' -ForegroundColor Cyan
+    $config = New-PesterConfiguration
+    $config.Run.Path = Join-Path $PSScriptRoot 'Tests'
+    $config.Run.PassThru = $true
+    $config.Output.Verbosity = 'Normal'
+    $result = Invoke-Pester -Configuration $config
+    if ($result.FailedCount -gt 0) {
+        throw "$($result.FailedCount) test(s) failed."
     }
-    Write-Host "✅ All Tests Passed." -ForegroundColor Green
 }
 
-# 3. Validation
-Write-Host "📋 Validating Module Manifest..." -ForegroundColor Cyan
-Test-ModuleManifest -Path "$PSScriptRoot\ArgosCCF.psd1" | Out-Null
-Write-Host "✅ Manifest Valid." -ForegroundColor Green
+Write-Host "Building $outputDir..." -ForegroundColor Cyan
+if (Test-Path $outputDir) { Remove-Item $outputDir -Recurse -Force }
+New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 
-Write-Host "🎉 Build Complete!" -ForegroundColor Green
-
-if ($Publish) {
-    Write-Host "🚀 Publishing to PowerShell Gallery (Simulation)..." -ForegroundColor Yellow
-    # Publish-Module -Path "$PSScriptRoot" -NuGetApiKey $env:NuGetApiKey
-    Write-Host "✅ Published (Simulated)." -ForegroundColor Green
+foreach ($item in $runtimeItems) {
+    $source = Join-Path $PSScriptRoot $item
+    $destination = Join-Path $outputDir $item
+    New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force | Out-Null
+    Copy-Item -Path $source -Destination $destination -Recurse -Force
 }
+
+$manifest = Test-ModuleManifest -Path (Join-Path $outputDir "$moduleName.psd1")
+$unexpected = Get-ChildItem $outputDir -Recurse -Force |
+    Where-Object { $_.Name -in '.git', '.github', 'Tests', 'Docs', 'Logs', 'User' -or $_.Extension -eq '.log' }
+if ($unexpected) {
+    throw "Build output contains files that must not be published: $($unexpected.FullName -join ', ')"
+}
+
+Write-Host "Built $moduleName $($manifest.Version) in $outputDir" -ForegroundColor Green

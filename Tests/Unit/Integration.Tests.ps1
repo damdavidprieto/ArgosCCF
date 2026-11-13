@@ -1,6 +1,6 @@
-Describe "ArgosCCF: Integración y Ecosistema (Professional API)" {
+﻿Describe "ArgosCCF: Integración y Ecosistema (Professional API)" {
     BeforeAll {
-        $manifest = Join-Path $PSScriptRoot "..\..\ArgosCCF.psd1"
+        $manifest = Join-Path $PSScriptRoot "../../ArgosCCF.psd1"
         Import-Module $manifest -Force
     }
 

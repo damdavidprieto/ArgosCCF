@@ -1,4 +1,4 @@
-<#
+﻿<#
     ArgosCCF v1.3 - Professional Feature Showcase
     Este script demuestra las nuevas capacidades evolucionadas de ArgosCCF.
 #>
