@@ -1,4 +1,4 @@
-﻿# ArgosCCF execution engine: parallel execution with runspace pools, retries and timing.
+# ArgosCCF execution engine: parallel execution with runspace pools, retries and timing.
 
 function Invoke-CCFParallel {
     <#
@@ -75,7 +75,7 @@ function Invoke-CCFParallel {
     )
 
     $totalTimer = [System.Diagnostics.Stopwatch]::StartNew()
-    Write-CCFLogInfo "Inicializando motor paralelo (Hilos: $MaxThreads, Reintentos: $RetryCount)"
+    Write-CCFLogInfo "Starting parallel execution (threads: $MaxThreads, retries: $RetryCount)"
 
     if ($MaxThreads -lt 2) { $MaxThreads = 2 }
 
@@ -87,7 +87,7 @@ function Invoke-CCFParallel {
     $totalObjects = $InputObjects.Count
     $processedCount = 0
 
-    # ScriptBlock Wrapper para Telemetría y Errores
+    # Wrapper that times each run and handles retries and errors
     # The task is passed as text and rebuilt inside each runspace. A script block keeps an
     # affinity to the runspace that created it, so invoking the caller's own script block
     # from the pool marshals it back to the (busy) caller and fails intermittently on 5.1.
@@ -162,7 +162,7 @@ function Invoke-CCFParallel {
                     }
                 }
                 catch {
-                    Write-CCFLogError "Fallo fatal en Runspace para $($job.Target): $($_.Exception.Message)"
+                    Write-CCFLogError "Runspace failed for $($job.Target): $($_.Exception.Message)"
                 }
                 finally {
                     $job.PowerShell.Dispose()
@@ -173,7 +173,7 @@ function Invoke-CCFParallel {
         }
 
         $totalTimer.Stop()
-        Write-CCFLogSuccess "Paralelización finalizada en $([math]::Round($totalTimer.Elapsed.TotalSeconds, 2))s."
+        Write-CCFLogSuccess "Parallel execution finished in $([math]::Round($totalTimer.Elapsed.TotalSeconds, 2))s."
         # Results come back in completion order; return them in input order.
         return @($finalResults | Sort-Object Index)
     }

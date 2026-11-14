@@ -1,4 +1,4 @@
-﻿# ArgosCCF plugins.
+# ArgosCCF plugins.
 #
 # Discovery (Get-CCFPlugin), signature checks (Confirm-CCFPluginSignature) and execution with
 # lifecycle hooks and an optional restricted runspace (Invoke-CCFPlugin).
@@ -189,7 +189,7 @@ function Get-CCFPlugin {
     foreach ($file in Get-ChildItem -LiteralPath $Path -Filter '*.ps1' -File -Recurse) {
         $plugin = [PSCustomObject]@{
             Name        = $null
-            Description = 'Sin descripción'
+            Description = 'No description'
             Version     = '1.0.0'
             Author      = 'Unknown'
             Path        = $file.FullName
@@ -221,7 +221,7 @@ function Get-CCFPlugin {
             elseif ($content -match 'CCF_PLUGIN_NAME:\s*(.+)') { $plugin.Name = $matches[1].Trim() }
             else { $plugin.Name = $file.BaseName }
         }
-        if ($plugin.Description -eq 'Sin descripción') {
+        if ($plugin.Description -eq 'No description') {
             if ($content -match '\.DESCRIPTION\s+(.+)') { $plugin.Description = $matches[1].Trim() }
             elseif ($content -match 'CCF_PLUGIN_DESC:\s*(.+)') { $plugin.Description = $matches[1].Trim() }
         }
@@ -293,7 +293,7 @@ function Invoke-CCFPlugin {
 
     # 1. Location
     if (-not (Test-CCFPluginLocation -Path $Plugin.Path)) {
-        Write-CCFLogCritical "BLOQUEO DE SEGURIDAD: Intento de cargar plugin desde ubicación no autorizada: $($Plugin.Path)"
+        Write-CCFLogCritical "SECURITY BLOCK: plugin outside the Plugins folder was not run: $($Plugin.Path)"
         return $null
     }
 
@@ -308,16 +308,16 @@ function Invoke-CCFPlugin {
     if ($requireSigned) {
         $sigResult = Get-CCFSignatureStatus -Path $Plugin.Path -Content $pluginFile.Bytes
         if (-not $sigResult.Valid) {
-            Write-CCFLogCritical "BLOQUEO DE SEGURIDAD: El plugin $($Plugin.Name) no tiene una firma válida y la política RequireSignedPlugins está activa."
+            Write-CCFLogCritical "SECURITY BLOCK: plugin $($Plugin.Name) has no valid signature and RequireSignedPlugins is enabled."
             return $null
         }
-        Write-CCFLogInfo "Firma válida detectada: $($sigResult.Signer)"
+        Write-CCFLogInfo "Valid signature: $($sigResult.Signer)"
     }
 
     if ($HardenedMode) {
-        Write-CCFLogWarn "Activando Sandboxing (ConstrainedLanguage) para $($Plugin.Name)"
+        Write-CCFLogWarn "Running $($Plugin.Name) in hardened mode (ConstrainedLanguage)"
     }
-    Write-CCFLogInfo "Preparando ejecución de plugin: $($Plugin.Name)"
+    Write-CCFLogInfo "Running plugin: $($Plugin.Name)"
 
     $scriptText = $pluginFile.Text
 
@@ -341,18 +341,18 @@ function Invoke-CCFPlugin {
 
     try {
         if ($hooks['Before-Execute']) {
-            Write-CCFLogDebug 'Ejecutando hook Before-Execute...'
+            Write-CCFLogDebug 'Running the Before-Execute hook'
             $null = Invoke-CCFPluginCode -ScriptText $hooks['Before-Execute'] -Parameters @{ Arguments = $Arguments } -Hardened:$HardenedMode
         }
 
         $result = Invoke-CCFPluginCode -ScriptText $scriptText -Parameters @{ Arguments = $Arguments } -Hardened:$HardenedMode
 
         if ($hooks['After-Execute']) {
-            Write-CCFLogDebug 'Ejecutando hook After-Execute...'
+            Write-CCFLogDebug 'Running the After-Execute hook'
             $null = Invoke-CCFPluginCode -ScriptText $hooks['After-Execute'] -Parameters @{ Result = $result } -Hardened:$HardenedMode
         }
 
-        Write-CCFLogSuccess "Plugin $($Plugin.Name) finalizado con éxito."
+        Write-CCFLogSuccess "Plugin $($Plugin.Name) finished."
         return $result
     }
     catch {

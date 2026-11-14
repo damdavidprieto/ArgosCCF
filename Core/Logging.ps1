@@ -135,7 +135,7 @@ function Register-CCFLogProvider {
     )
 
     $script:LogProvider = $ProviderScript
-    Write-CCFLog 'Log Provider (Console/UI) registrado correctamente.' -Level 'SUCCESS'
+    Write-CCFLog 'Log provider registered.' -Level 'SUCCESS'
 }
 
 function Register-CCFSIEMProvider {
@@ -166,7 +166,7 @@ function Register-CCFSIEMProvider {
     )
 
     $script:SIEMProvider = $ProviderScript
-    Write-CCFLog 'SIEM Provider (Samael/Export) registrado correctamente.' -Level 'SUCCESS'
+    Write-CCFLog 'SIEM provider registered.' -Level 'SUCCESS'
 }
 
 # --- Redaction ---

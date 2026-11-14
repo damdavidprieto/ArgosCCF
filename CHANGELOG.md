@@ -64,6 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.git`, tests, docs and test plugins. Removed `ArgosCCF.nuspec`, `Core/diagnostic.ps1` and the test
   plugins from `Plugins/`.
 - Removed the self-assessed audit reports from `Docs/`.
+- Log and error messages are in English (they were in Spanish), and security blocks start with
+  `SECURITY BLOCK:`. Scripts that matched the old Spanish texts need updating.
 - `Get-CCFPlugins` is now `Get-CCFPlugin` (singular noun); the old name remains as an alias.
   It now also finds plugins in subfolders of `Plugins`, such as the shipped `Plugins/Examples`.
 - `Set-CCFUserConfig` supports `-WhatIf` and `-Confirm`; `Set-CCFLogLevel -Level` is mandatory.

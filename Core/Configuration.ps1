@@ -1,4 +1,4 @@
-﻿# ArgosCCF configuration manager.
+# ArgosCCF configuration manager.
 #
 # Layered JSON configuration: Configs/Factory/<name>.json, then optional presets from
 # Configs/Presets/<preset>.json, then the user's overrides in Configs/User/<name>.json, merged
@@ -132,7 +132,7 @@ function Get-CCFConfig {
     # Security: names become file names, so refuse anything that could leave Configs.
     foreach ($name in @($ConfigName) + $ActivePresets) {
         if (-not (Test-CCFConfigName -Name $name)) {
-            Write-CCFLogError "BLOQUEO DE SEGURIDAD: Intento de Path Traversal o nombre de configuración inválido: $name"
+            Write-CCFLogError "SECURITY BLOCK: invalid configuration or preset name (possible path traversal): $name"
             return $null
         }
     }
@@ -140,7 +140,7 @@ function Get-CCFConfig {
     $cacheKey = $ConfigName + '|' + ($ActivePresets -join ',')
     $cachedVal = $null
     if (-not $ForceRefresh -and $script:ConfigCache.TryGetValue($cacheKey, [ref]$cachedVal)) {
-        Write-CCFLogDebug "Retornando configuración desde caché para: $ConfigName"
+        Write-CCFLogDebug "Returning cached configuration for: $ConfigName"
         return $cachedVal
     }
 
@@ -154,10 +154,10 @@ function Get-CCFConfig {
     if (Test-Path -LiteralPath $factoryPath) {
         try {
             $finalConfig = Read-CCFJsonFile -Path $factoryPath
-            Write-CCFLogDebug "Base cargada para: $ConfigName"
+            Write-CCFLogDebug "Factory configuration loaded for: $ConfigName"
         }
         catch {
-            Write-CCFLogError "Fallo crítico al cargar Factory Config ${ConfigName}: $($_.Exception.Message)"
+            Write-CCFLogError "Could not load the factory configuration ${ConfigName}: $($_.Exception.Message)"
             return $null
         }
     }
@@ -171,7 +171,7 @@ function Get-CCFConfig {
                     $finalConfig = Merge-CCFConfig -Base $finalConfig -Override $pContent.$ConfigName
                 }
             }
-            catch { Write-CCFLogWarn "Fallo al aplicar preset '$preset'" }
+            catch { Write-CCFLogWarn "Could not apply preset '$preset': $($_.Exception.Message)" }
         }
     }
 
@@ -179,7 +179,7 @@ function Get-CCFConfig {
         try {
             $finalConfig = Merge-CCFConfig -Base $finalConfig -Override (Read-CCFJsonFile -Path $userPath)
         }
-        catch { Write-CCFLogWarn "Fallo al cargar User Config para $ConfigName" }
+        catch { Write-CCFLogWarn "Could not load the user configuration for ${ConfigName}: $($_.Exception.Message)" }
     }
 
     $script:ConfigCache[$cacheKey] = $finalConfig
@@ -219,7 +219,7 @@ function Set-CCFUserConfig {
     )
 
     if (-not (Test-CCFConfigName -Name $ConfigName)) {
-        Write-CCFLogError "BLOQUEO DE SEGURIDAD: Intento de Path Traversal o nombre de configuración inválido: $ConfigName"
+        Write-CCFLogError "SECURITY BLOCK: invalid configuration name (possible path traversal): $ConfigName"
         return
     }
 
@@ -230,16 +230,16 @@ function Set-CCFUserConfig {
     try {
         if (-not (Test-Path -LiteralPath $userDir)) { New-Item -ItemType Directory -Path $userDir -Force | Out-Null }
         $ConfigObject | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $userPath -Encoding UTF8 -Force -ErrorAction Stop
-        Write-CCFLogSuccess "Configuración guardada en ${userPath}"
+        Write-CCFLogSuccess "Configuration saved to ${userPath}"
 
         foreach ($key in @($script:ConfigCache.Keys | Where-Object { $_.StartsWith("$ConfigName|") })) {
             $removed = $null
             $null = $script:ConfigCache.TryRemove($key, [ref]$removed)
         }
-        Write-CCFLogDebug "Caché invalidada para: $ConfigName"
+        Write-CCFLogDebug "Cache cleared for: $ConfigName"
     }
     catch {
-        Write-CCFLogError "No se pudo guardar en ${userPath}: $($_.Exception.Message)"
+        Write-CCFLogError "Could not save ${userPath}: $($_.Exception.Message)"
     }
 }
 
@@ -263,7 +263,7 @@ function Remove-CCFConfigCache {
     param()
 
     $script:ConfigCache.Clear()
-    Write-CCFLogInfo 'Caché de configuración vaciada.'
+    Write-CCFLogInfo 'Configuration cache cleared.'
 }
 
 function Test-CCFConfigSchema {
@@ -310,29 +310,29 @@ function Test-CCFConfigSchema {
         $val = $Config.$key
 
         if ($rule.Mandatory -and ($null -eq $val)) {
-            $errors.Add("Campo obligatorio faltante: $key")
+            $errors.Add("Missing mandatory property: $key")
             continue
         }
 
         if ($null -eq $val) {
             if ($null -ne $rule.Default) {
                 $Config | Add-Member -NotePropertyName $key -NotePropertyValue $rule.Default -Force
-                Write-CCFLogDebug "Aplicado valor por defecto para $($key): $($rule.Default)"
+                Write-CCFLogDebug "Default value applied for $($key): $($rule.Default)"
             }
             continue
         }
 
         if ($null -ne $rule.Type -and -not ($val -is $rule.Type)) {
-            $errors.Add("Tipo incorrecto para $key. Esperado: $($rule.Type.Name), Obtenido: $($val.GetType().Name)")
+            $errors.Add("Wrong type for $key. Expected: $($rule.Type.Name), found: $($val.GetType().Name)")
         }
 
         if ($null -ne $rule.AllowedValues -and @($rule.AllowedValues) -notcontains $val) {
-            $errors.Add("Valor '$val' no permitido para $key. Opciones: $(@($rule.AllowedValues) -join ', ')")
+            $errors.Add("Value '$val' is not allowed for $key. Allowed values: $(@($rule.AllowedValues) -join ', ')")
         }
     }
 
     if ($errors.Count -gt 0) {
-        foreach ($err in $errors) { Write-CCFLogError "Validación de Config: $err" }
+        foreach ($err in $errors) { Write-CCFLogError "Configuration validation: $err" }
         return $false
     }
     return $true

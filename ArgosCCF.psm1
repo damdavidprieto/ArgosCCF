@@ -1,4 +1,4 @@
-﻿# ArgosCCF - configuration, logging, plugins and parallel execution for PowerShell scripts.
+# ArgosCCF - configuration, logging, plugins and parallel execution for PowerShell scripts.
 #
 # Resolves the module's folders, then dot-sources the Core files into this module's scope.
 # License: MIT
@@ -77,7 +77,7 @@ function Initialize-CCFEnvironment {
         $path = Join-Path $script:ArgosCCFRoot $p
         if (-not (Test-Path -LiteralPath $path)) {
             try { New-Item -ItemType Directory -Path $path -Force -ErrorAction Stop | Out-Null }
-            catch { Write-Verbose "No se pudo crear ${path}: $($_.Exception.Message)" }
+            catch { Write-Verbose "Could not create ${path}: $($_.Exception.Message)" }
         }
     }
 
@@ -88,7 +88,7 @@ function Initialize-CCFEnvironment {
         else { Join-Path $HOME '.local/share' }
         $script:LogsPath = Join-Path (Join-Path $userData 'ArgosCCF') 'Logs'
         if (-not (Test-CCFWritableDirectory -Path $script:LogsPath)) {
-            Write-Warning 'ArgosCCF: no hay ninguna carpeta de logs con permiso de escritura; los logs solo se mostrarán en consola.'
+            Write-Warning 'ArgosCCF: no writable folder for logs was found; log entries will only be shown on the console.'
         }
     }
 }
@@ -141,7 +141,7 @@ function Get-CCFPath {
                 $null = $script:PathCache.TryAdd($Target, $finalPath)
                 return $finalPath
             }
-            Write-CCFLogWarn "Override de ruta bloqueado por seguridad (Fuera de scope): $override"
+            Write-CCFLogWarn "SECURITY BLOCK: Logging.DefaultPath points outside the allowed folder and was ignored: $override"
         }
     }
 

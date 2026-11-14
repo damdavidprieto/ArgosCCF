@@ -1,17 +1,17 @@
-﻿Describe "ArgosCCF: Motor de Configuración (Professional API)" {
+Describe "ArgosCCF: configuration" {
     BeforeAll {
         $manifest = Join-Path $PSScriptRoot "../../ArgosCCF.psd1"
         Import-Module $manifest -Force
     }
 
-    Context "Seguridad (Parche CWE-22)" {
-        It "Debe bloquear intentos de Path Traversal en ConfigName" {
+    Context "Path traversal (CWE-22)" {
+        It "blocks path traversal in ConfigName" {
             Get-CCFConfig -ConfigName "..\..\Secrets" | Should -BeNullOrEmpty
         }
     }
 
-    Context "Lógica de Fusión (Deep Merge)" {
-        It "Debe fusionar objetos anidados sin perder datos base" {
+    Context "Deep merge" {
+        It "merges nested objects without losing base values" {
             $base = [PSCustomObject]@{ Settings = [PSCustomObject]@{ Port = 80; Path = "/" } }
             $over = [PSCustomObject]@{ Settings = [PSCustomObject]@{ Port = 443 } }
             $res = Merge-CCFConfig -Base $base -Override $over
@@ -20,8 +20,8 @@
         }
     }
 
-    Context "Retrocompatibilidad (Alias)" {
-        It "El alias Clear-CCFConfigCache debe apuntar a Remove-CCFConfigCache" {
+    Context "Aliases for earlier names" {
+        It "alias Clear-CCFConfigCache points to Remove-CCFConfigCache" {
             (Get-Alias Clear-CCFConfigCache).Definition | Should -Be "Remove-CCFConfigCache"
         }
     }
