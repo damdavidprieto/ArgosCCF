@@ -41,8 +41,12 @@ function Invoke-CCFParallel {
     $processedCount = 0
 
     # ScriptBlock Wrapper para Telemetría y Errores
+    # The task is passed as text and rebuilt inside each runspace. A script block keeps an
+    # affinity to the runspace that created it, so invoking the caller's own script block
+    # from the pool marshals it back to the (busy) caller and fails intermittently on 5.1.
     $wrapper = {
-        param($obj, $Params, $sb, $tries)
+        param($obj, $Params, $sbText, $tries, $delayMs)
+        $sb = [scriptblock]::Create($sbText)
         $timer = [System.Diagnostics.Stopwatch]::StartNew()
         $currentTry = 0
         $success = $false
@@ -57,7 +61,7 @@ function Invoke-CCFParallel {
             catch {
                 $lastError = $_.Exception.Message
                 $currentTry++
-                if ($currentTry -le $tries) { Start-Sleep -Milliseconds 200 }
+                if ($currentTry -le $tries) { Start-Sleep -Milliseconds $delayMs }
             }
         }
         $timer.Stop()
@@ -75,7 +79,7 @@ function Invoke-CCFParallel {
         foreach ($obj in $InputObjects) {
             $ps = [PowerShell]::Create().AddScript($wrapper)
             $ps.RunspacePool = $rsPool
-            $null = $ps.AddArgument($obj).AddArgument($Arguments).AddArgument($ScriptBlock).AddArgument($RetryCount)
+            $null = $ps.AddArgument($obj).AddArgument($Arguments).AddArgument($ScriptBlock.ToString()).AddArgument($RetryCount).AddArgument($RetryDelayMs)
 
             $jobs.Add([PSCustomObject]@{
                     PowerShell = $ps

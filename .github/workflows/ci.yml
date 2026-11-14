@@ -62,6 +62,7 @@ jobs:
           $config.Run.Path = './Tests'
           $config.Run.Exit = $true
           $config.Output.Verbosity = 'Normal'
+          $config.Output.StackTraceVerbosity = 'Full'
           Invoke-Pester -Configuration $config
 
       - name: Install with Install-Module and auto-load (Windows PowerShell 5.1)
