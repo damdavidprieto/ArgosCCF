@@ -50,6 +50,64 @@ return "Success-Lifecycle"
         }
     }
 
+    It "refuses a path that climbs out of the Plugins folder with '..'" {
+        $outside = Join-Path (Split-Path $pluginRoot -Parent) "Escape_$([guid]::NewGuid().ToString('N')).ps1"
+        "return 'should not run'" | Set-Content $outside
+        try {
+            $sneaky = $pluginRoot.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar + ".." + [IO.Path]::DirectorySeparatorChar + (Split-Path $outside -Leaf)
+            Test-Path $sneaky | Should -BeTrue -Because "the path must point at a real file outside Plugins"
+            Invoke-CCFPlugin -Plugin ([PSCustomObject]@{ Name = "Escape"; Path = $sneaky }) | Should -BeNullOrEmpty
+        }
+        finally {
+            Remove-Item $outside -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "refuses a sibling folder whose name starts with 'Plugins'" {
+        $sibling = $pluginRoot.TrimEnd('\', '/') + "Evil_" + [guid]::NewGuid().ToString("N").Substring(0, 8)
+        New-Item -ItemType Directory -Path $sibling -Force | Out-Null
+        try {
+            $path = Join-Path $sibling "Sibling.ps1"
+            "return 'should not run'" | Set-Content $path
+            Invoke-CCFPlugin -Plugin ([PSCustomObject]@{ Name = "Sibling"; Path = $path }) | Should -BeNullOrEmpty
+        }
+        finally {
+            Remove-Item $sibling -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "runs hooks inside the sandbox in HardenedMode" {
+        $marker = Join-Path ([IO.Path]::GetTempPath()) "HookEscape_$([guid]::NewGuid().ToString('N')).txt"
+        $path = Join-Path $testDir "HookEscape.ps1"
+        @"
+param(`$Arguments)
+function Before-Execute { param(`$Arguments) [System.IO.File]::WriteAllText('$marker', 'escaped') }
+return 'main ran'
+"@ | Set-Content $path
+        try {
+            $result = Invoke-CCFPlugin -Plugin ([PSCustomObject]@{ Name = "HookEscape"; Path = $path }) -HardenedMode
+
+            $result | Should -BeNullOrEmpty
+            Test-Path $marker | Should -BeFalse
+        }
+        finally {
+            Remove-Item $marker -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "still runs allowed hook code in HardenedMode" {
+        $path = Join-Path $testDir "HardenedHooks.ps1"
+        @'
+param($Arguments)
+function Before-Execute { param($Arguments) $x = 1 + 1 }
+function After-Execute { param($Result) $y = "$Result" }
+return "hardened " + $Arguments.Task
+'@ | Set-Content $path
+
+        Invoke-CCFPlugin -Plugin ([PSCustomObject]@{ Name = "HardenedHooks"; Path = $path }) -Arguments @{ Task = "ok" } -HardenedMode |
+            Should -Be "hardened ok"
+    }
+
     It "refuses an unsigned plugin when RequireSignedPlugins is on" {
         $path = Join-Path $testDir "Unsigned.ps1"
         "return 'unsigned ran'" | Set-Content $path

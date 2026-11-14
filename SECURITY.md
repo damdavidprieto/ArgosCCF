@@ -4,9 +4,11 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.3.x   | :white_check_mark: |
-| 1.2.x   | :white_check_mark: |
-| < 1.2   | :x:                |
+| 1.4.x   | :white_check_mark: |
+| < 1.4   | :x:                |
+
+Versions before 1.4.0 let plugin hooks run outside the sandbox and accepted plugin paths outside the
+`Plugins` folder. Update to 1.4.0 or later.
 
 ## Reporting a Vulnerability
 
@@ -23,7 +25,7 @@ You can expect an initial response within a few days. If you do not hear back, p
 ArgosCCF includes several mechanisms to ensure secure automation:
 
 *   **L5 Hardening**: Strict validation of input types and boundaries.
-*   **Plugin Signtures**: Execution policies that can require cryptographically signed plugins.
-*   **Sandboxing**: Configurable Constrained Language Mode for untrusted plugins.
+*   **Plugin Signatures**: Execution policies that can require cryptographically signed plugins.
+*   **Sandboxing**: Optional restricted runspace in Constrained Language Mode for plugins and their hooks. It reduces what a plugin can do but is not a security boundary without WDAC or AppLocker.
 *   **Secret Redaction**: Automatic entropy-based detection and redaction of secrets in logs.
 *   **Anti-Path Traversal**: Strict validation of file paths to prevent unauthorized file system access.

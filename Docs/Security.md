@@ -73,12 +73,18 @@ $result = Invoke-CCFPlugin -Plugin $plugin
 $result = Invoke-CCFPlugin -Plugin $plugin -HardenedMode
 ```
 
-**Constrained Language Mode** restricts:
-- Access to .NET types
-- COM objects
-- WMI calls
-- File system access (limited)
-- Network operations
+With `-HardenedMode` the plugin and its `Before-Execute`/`After-Execute` hooks run in a new restricted
+runspace: no cmdlets or providers are loaded, and Constrained Language Mode blocks method calls on
+non-core .NET types, `Add-Type` and COM objects. Hooks therefore cannot call ArgosCCF functions in this
+mode; they only see the arguments (or the result) passed to them.
+
+> **Limits.** Microsoft does not treat Constrained Language Mode as a security boundary on its own; it is
+> only enforced as one together with WDAC or AppLocker. `-HardenedMode` reduces what a plugin can do, but
+> it is not a substitute for trusting the code: for plugins you did not write, also enable
+> `RequireSignedPlugins` and keep the `Plugins` folder writable only by administrators.
+
+Plugins only run from inside the module's `Plugins` folder. The path is normalized before the check, so
+`Plugins\..\other.ps1` and sibling folders such as `PluginsX` are rejected, and only `.ps1` files are run.
 
 ### 5. Path Traversal Protection
 

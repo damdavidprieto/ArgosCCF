@@ -5,7 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.4.0] - 2026-11-13
+## [1.4.0] - 2026-11-14
+
+### Security
+- **Plugin hooks escaped the sandbox**: with `-HardenedMode` only the plugin's main code ran in the
+  restricted runspace; its `Before-Execute` and `After-Execute` hooks ran in the caller's session with
+  full language. Hooks now run in the same restricted runspace.
+- **Plugin folder check**: `Invoke-CCFPlugin` compared the raw path as a text prefix, so
+  `Plugins\..\file.ps1` and sibling folders such as `PluginsX` passed. The path is now normalized, must
+  be inside `Plugins` and must be an existing `.ps1` file.
+- Documented that Constrained Language Mode is not a security boundary without WDAC or AppLocker.
 
 ### Fixed
 - **Exports**: the Core files were imported as separate global modules (`Logging`, `Configuration`,

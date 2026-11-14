@@ -83,6 +83,62 @@ function Get-CCFPlugins {
     return $plugins
 }
 
+# --- Helpers de seguridad (privados) ---
+function Test-CCFPluginLocation {
+    # True only when Path resolves to a .ps1 file inside the Plugins folder. Paths are
+    # normalized first, so "Plugins\..\x.ps1" and sibling folders like "PluginsX" are rejected.
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+    try {
+        $root = [System.IO.Path]::GetFullPath((Get-CCFPath -Target "Plugins")).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+        $full = [System.IO.Path]::GetFullPath($Path)
+    }
+    catch { return $false }
+
+    $comparison = if ($IsLinux -or $IsMacOS) { [StringComparison]::Ordinal } else { [StringComparison]::OrdinalIgnoreCase }
+    if (-not $full.StartsWith($root, $comparison)) { return $false }
+    if ([System.IO.Path]::GetExtension($full) -ne ".ps1") { return $false }
+    return (Test-Path -LiteralPath $full -PathType Leaf)
+}
+
+function Invoke-CCFPluginCode {
+    # Runs plugin code. With -Hardened it runs in a new restricted runspace in
+    # ConstrainedLanguage mode; otherwise in the caller's session.
+    param(
+        [Parameter(Mandatory = $true)][string]$ScriptText,
+        [hashtable]$Parameters = @{},
+        [switch]$Hardened
+    )
+
+    if (-not $Hardened) {
+        $scriptBlock = [scriptblock]::Create($ScriptText)
+        return (& $scriptBlock @Parameters)
+    }
+
+    $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateRestricted([System.Management.Automation.SessionCapabilities]::Language)
+    $iss.LanguageMode = [System.Management.Automation.PSLanguageMode]::ConstrainedLanguage
+    $rs = [runspacefactory]::CreateRunspace($iss)
+    $ps = $null
+    try {
+        $rs.Open()
+        $ps = [powershell]::Create().AddScript($ScriptText)
+        foreach ($key in $Parameters.Keys) { $null = $ps.AddParameter($key, $Parameters[$key]) }
+        $ps.Runspace = $rs
+        $result = $ps.Invoke()
+        if ($ps.HadErrors) { throw $ps.Streams.Error[0].Exception }
+    }
+    finally {
+        if ($ps) { $ps.Dispose() }
+        $rs.Dispose()
+    }
+
+    # Invoke returns a collection; flatten it for consistency with the unrestricted path.
+    if ($result.Count -eq 0) { return $null }
+    if ($result.Count -eq 1) { return $result[0] }
+    return $result
+}
+
 # --- Ejecución de Plugins con Ciclo de Vida y Sandboxing ---
 function Invoke-CCFPlugin {
     param(
@@ -97,8 +153,7 @@ function Invoke-CCFPlugin {
     )
     
     # 1. SEGURIDAD: Validación de Ubicación (Anti-Inyección)
-    $allowedPluginsPath = Get-CCFPath -Target "Plugins"
-    if ($Plugin.Path -notlike "$allowedPluginsPath*") {
+    if (-not (Test-CCFPluginLocation -Path $Plugin.Path)) {
         Log-Critical "BLOQUEO DE SEGURIDAD: Intento de cargar plugin desde ubicación no autorizada: $($Plugin.Path)"
         return $null
     }
@@ -119,24 +174,17 @@ function Invoke-CCFPlugin {
         Log-Info "Firma válida detectada: $($sigResult.Signer)"
     }
 
-    # 3. SEGURIDAD: Configuración de Sandboxing
-    $rs = $null
     if ($HardenedMode) {
         Log-Warn "Activando Sandboxing (ConstrainedLanguage) para $($Plugin.Name)"
-        # Usar CreateRestricted para evitar CUALQUIER comando o proveedor por defecto
-        # Solo permitimos Comandos básicos de lenguaje.
-        $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateRestricted([System.Management.Automation.SessionCapabilities]::Language)
-        $iss.LanguageMode = [System.Management.Automation.PSLanguageMode]::ConstrainedLanguage
-        $rs = [runspacefactory]::CreateRunspace($iss)
     }
 
     Log-Info "Preparando ejecución de plugin: $($Plugin.Name)"
-    
-    # Crear un scope aislado para el plugin
-    $scriptText = Get-Content $Plugin.Path -Raw
-    
+
+    $scriptText = Get-Content -LiteralPath $Plugin.Path -Raw
+
     # Hooks are read from the plugin's AST instead of dot-sourcing the file, so defining
-    # them does not run the plugin's main code a second time.
+    # them does not run the plugin's main code a second time. Only the hook body's text is
+    # kept: in HardenedMode it runs in the same restricted runspace as the plugin.
     $hooks = @{}
     if (-not $SkipHooks) {
         $ast = [System.Management.Automation.Language.Parser]::ParseInput($scriptText, [ref]$null, [ref]$null)
@@ -145,51 +193,27 @@ function Invoke-CCFPlugin {
                     param($node)
                     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
                 }, $false)
-            if ($fn) { $hooks[$name] = $fn.Body.GetScriptBlock() }
+            if ($fn) {
+                $body = $fn.Body.Extent.Text.Trim()
+                $hooks[$name] = $body.Substring(1, $body.Length - 2)
+            }
         }
     }
 
     try {
         # 3. Hook: Before-Execute
-        # Nota: Los hooks se ejecutan en el Runspace LOCAL para interactuar con CCF.
         if ($hooks["Before-Execute"]) {
             Log-Debug "Ejecutando hook Before-Execute..."
-            $null = & $hooks["Before-Execute"] -Arguments $Arguments
+            $null = Invoke-CCFPluginCode -ScriptText $hooks["Before-Execute"] -Parameters @{ Arguments = $Arguments } -Hardened:$HardenedMode
         }
 
         # 4. Ejecución Principal
-        $result = $null
-        if ($HardenedMode) {
-            $rs.Open()
-            $ps = [powershell]::Create().AddScript($scriptText)
-            $null = $ps.AddParameter("Arguments", $Arguments)
-            $ps.Runspace = $rs
-            try {
-                $result = $ps.Invoke()
-                # Capturar errores del runspace
-                if ($ps.HadErrors) {
-                    # Lanzamos una excepción para que Catch-CCFError la capture
-                    throw $ps.Streams.Error[0].Exception
-                }
-            }
-            finally {
-                $ps.Dispose()
-                $rs.Close()
-                $rs.Dispose()
-            }
-            # Aplanar resultado para consistencia (Invoke retorna Colección)
-            if ($null -ne $result -and $result.Count -eq 1) { $result = $result[0] }
-            elseif ($null -ne $result -and $result.Count -eq 0) { $result = $null }
-        }
-        else {
-            $scriptBlock = [scriptblock]::Create($scriptText)
-            $result = & $scriptBlock -Arguments $Arguments
-        }
-        
+        $result = Invoke-CCFPluginCode -ScriptText $scriptText -Parameters @{ Arguments = $Arguments } -Hardened:$HardenedMode
+
         # 5. Hook: After-Execute
         if ($hooks["After-Execute"]) {
             Log-Debug "Ejecutando hook After-Execute..."
-            $null = & $hooks["After-Execute"] -Result $result
+            $null = Invoke-CCFPluginCode -ScriptText $hooks["After-Execute"] -Parameters @{ Result = $result } -Hardened:$HardenedMode
         }
 
         Log-Success "Plugin $($Plugin.Name) finalizado con éxito."

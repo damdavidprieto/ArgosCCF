@@ -103,11 +103,16 @@ Enable signature verification in `Configs/Factory/ccf_core.json`:
 
 ### Sandboxing
 
-Execute plugins in Constrained Language Mode for maximum security:
+Execute plugins in a restricted runspace with Constrained Language Mode:
 
 ```powershell
 $result = Invoke-CCFPlugin -Plugin $myPlugin -HardenedMode
 ```
+
+In this mode the hooks run in the same restricted runspace as the plugin, so they cannot call ArgosCCF
+or other cmdlets. Constrained Language Mode is not a security boundary by itself (see
+[Security](Security.md#4-plugin-sandboxing)); combine it with `RequireSignedPlugins` for code you did
+not write.
 
 ## Best Practices
 
