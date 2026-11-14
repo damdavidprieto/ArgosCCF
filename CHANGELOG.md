@@ -2,12 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
 
 ## [1.4.0] - 2026-11-14
 
 ### Security
+- **Log files outside the Logs folder.** `Write-CCFLog -Category` and `Initialize-CCFLogger -FileName`
+  became part of a file path without checks, so a value such as `..\..\x` wrote outside `Logs`. They now
+  accept only letters, digits, `.`, `-` and `_`.
+- **Log forging and terminal escapes.** Messages were written as-is, so a line break could add a fake
+  entry to a log file and an ANSI sequence could restyle or hide console output. Each entry is now one
+  line (line breaks are written as `\n`) and control characters are removed.
+- **Configuration names.** `Set-CCFUserConfig` and preset names were not validated, so a name such as
+  `..\..\x` wrote or read JSON outside `Configs`. Both now use the same check as `Get-CCFConfig`.
+- **Logs override.** `Logging.DefaultPath` was compared as a text prefix, so `..` segments could point
+  it outside the allowed folder. The path is now resolved before the check.
+- **Plugin signature check.** The signature was checked on the file and the file was then read again
+  to run it; now both use the same bytes, so the plugin cannot be swapped in between.
 - **Plugin hooks escaped the sandbox**: with `-HardenedMode` only the plugin's main code ran in the
   restricted runspace; its `Before-Execute` and `After-Execute` hooks ran in the caller's session with
   full language. Hooks now run in the same restricted runspace.
@@ -20,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Exports**: the Core files were imported as separate global modules (`Logging`, `Configuration`,
   `Plugins`, `Execution`), so `Get-Command -Module ArgosCCF` listed only 2 functions and those generic
   module names could clash with other modules. They are now loaded into ArgosCCF's own scope and the
-  module exports its 31 functions and 16 aliases.
+  module exports its 31 functions and 17 aliases.
 - **Missing functions**: `Write-CCFSecurityRecord`, `Write-CCFAuditRecord` and the aliases `Log-Attack`,
   `Log-Audit`, `Test-CCFHighEntropy` were documented and listed in the manifest but did not exist.
   Added, together with `Remove-CCFOldLog` (alias `Remove-OldCCFLogs`). `Merge-CCFConfig`,
@@ -50,6 +64,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.git`, tests, docs and test plugins. Removed `ArgosCCF.nuspec`, `Core/diagnostic.ps1` and the test
   plugins from `Plugins/`.
 - Removed the self-assessed audit reports from `Docs/`.
+- `Get-CCFPlugins` is now `Get-CCFPlugin` (singular noun); the old name remains as an alias.
+  It now also finds plugins in subfolders of `Plugins`, such as the shipped `Plugins/Examples`.
+- `Set-CCFUserConfig` supports `-WhatIf` and `-Confirm`; `Set-CCFLogLevel -Level` is mandatory.
+- Configuration and plugin manifest files are read and written as UTF-8 on Windows PowerShell 5.1.
+- Log timestamps are in UTC (they already ended in `Z`), and the host name comes from
+  `[Environment]::MachineName`, which also works on Linux and macOS.
+- `Invoke-CCFParallel` uses the processor count on every platform (it read a Windows-only variable).
+- The configuration cache keeps results for different preset lists apart.
+- `Test-CCFEntropyContent` tells upper and lower case apart, so ordinary words are not redacted.
+- `Plugins/Examples/SystemInfo.ps1` works on Linux and macOS and returns its data instead of printing it.
+- `Configs/Factory/ccf_core.json` lists only the settings the module reads
+  (`Logging.DefaultPath`, `Security.RequireSignedPlugins`); the example configurations
+  `demo_app.json` and `verify.json` are no longer shipped.
+- Every exported command has complete help, and `Docs/API-Reference.md` is generated from it.
+- Build and CI follow the structure of the Sampler module template: `PSScriptAnalyzerSettings.psd1`
+  (with Windows PowerShell 5.1 compatibility rules), QA tests for help, analyzer, changelog and
+  manifest, and a `Publish` workflow that also creates the GitHub release.
+- New examples in `Examples/` that run as part of the tests and clean up after themselves.
 
 ## [1.3.0] - 2026-01-21
 

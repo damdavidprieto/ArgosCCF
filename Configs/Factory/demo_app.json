@@ -1,8 +1,0 @@
-{
-    "App":  {
-                "Settings":  {
-                                 "MaxThreads":  2
-                             },
-                "Name":  "CCF Stable Demo"
-            }
-}

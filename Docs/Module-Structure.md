@@ -15,11 +15,13 @@ ArgosCCF/
 │   ├── Execution.ps1        # Runspace-pool parallel execution
 │   ├── Logging.ps1          # Structured logging, security/audit records, redaction, retention
 │   └── Plugins.ps1          # Plugin discovery, signature check, sandboxing
-├── Configs/             # Factory defaults and user overrides
-├── Plugins/             # Plugin scripts
-├── Tests/               # Pester: Unit/, Integration/, E2E/
+├── Configs/             # Factory defaults (shipped) and user overrides (local)
+├── Plugins/             # Plugin scripts; Plugins/Examples is shipped
+├── Tests/               # Pester: QA/, Unit/, Integration/
 ├── Docs/                # This documentation
-├── Examples/
+├── Examples/            # Runnable examples, run by the tests
+├── build.ps1            # Analysis, tests and package in output/ArgosCCF
+├── PSScriptAnalyzerSettings.psd1
 ├── CHANGELOG.md
 └── LICENSE
 ```
@@ -66,7 +68,7 @@ Fields that matter:
 }
 ```
 
-ArgosCCF exports 28 functions and 15 aliases this way. The aliases keep older names
+ArgosCCF exports 31 functions and 17 aliases this way. The aliases keep older names
 working (`Log-Info` → `Write-CCFLogInfo`, `Init-CCFLogger` → `Initialize-CCFLogger`)
 while the functions themselves use approved verbs.
 
@@ -162,7 +164,8 @@ Tests use [Pester 5](https://pester.dev/) and are split by scope:
 
 | Folder | What it covers |
 |---|---|
-| `Tests/Unit` | Each Core area (configuration, execution, logging, plugins) and the manifest: exports match the module, source files have a UTF-8 BOM |
+| `Tests/QA` | Module quality, as in the Sampler template: complete help for every exported command, no PSScriptAnalyzer findings with `PSScriptAnalyzerSettings.psd1`, changelog format, manifest metadata and exports |
+| `Tests/Unit` | Each Core area (configuration, execution, logging, plugins), security checks (log names, log forging, configuration names, path overrides) and the examples |
 | `Tests/Integration` | End to end: what reaches the log files (redaction, JSON, security and audit records, retention) and plugin execution (manifests, hooks, location and signature policies) |
 
 A minimal test file:
@@ -187,7 +190,7 @@ Invoke-Pester -Path .\Tests -Output Detailed
 
 ## 7. Continuous integration and publishing
 
-- `build.ps1` runs PSScriptAnalyzer and Pester, then copies only the runtime files
+- `build.ps1` runs PSScriptAnalyzer with `PSScriptAnalyzerSettings.psd1` and Pester, then copies only the runtime files
   (manifest, root module, `Core`, `Configs/Factory`, `Plugins/Examples`, `LICENSE`, `README.md`)
   into `output/ArgosCCF`. That folder is what gets published, never the repository root.
 - `.github/workflows/ci.yml` runs `build.ps1` on Windows, Linux and macOS (PowerShell 7), and

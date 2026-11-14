@@ -25,7 +25,7 @@
         It "El alias Catch-CCFError debe apuntar a Write-CCFErrorRecord" {
             (Get-Alias Catch-CCFError).Definition | Should -Be "Write-CCFErrorRecord"
         }
-        
+
         It "El alias Init-CCFLogger debe apuntar a Initialize-CCFLogger" {
             (Get-Alias Init-CCFLogger).Definition | Should -Be "Initialize-CCFLogger"
         }

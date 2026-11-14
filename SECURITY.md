@@ -22,10 +22,10 @@ You can expect an initial response within a few days. If you do not hear back, p
 
 ## Security Features
 
-ArgosCCF includes several mechanisms to ensure secure automation:
+See [Docs/Security.md](Docs/Security.md) for details and a checklist. In short:
 
-*   **L5 Hardening**: Strict validation of input types and boundaries.
-*   **Plugin Signatures**: Execution policies that can require cryptographically signed plugins.
-*   **Sandboxing**: Optional restricted runspace in Constrained Language Mode for plugins and their hooks. It reduces what a plugin can do but is not a security boundary without WDAC or AppLocker.
-*   **Secret Redaction**: Automatic entropy-based detection and redaction of secrets in logs.
-*   **Anti-Path Traversal**: Strict validation of file paths to prevent unauthorized file system access.
+*   **Secret redaction**: keyword- and entropy-based redaction of messages and data before they are logged.
+*   **Log integrity**: one entry per line (line breaks cannot forge entries), no terminal escape sequences, and log files that cannot leave the Logs folder.
+*   **Path checks**: configuration, preset and plugin names and the Logs override cannot point outside their folders.
+*   **Plugin signatures**: optional requirement of a valid Authenticode signature, checked on the exact bytes that run.
+*   **Sandboxing**: optional restricted runspace in Constrained Language Mode for plugins and their hooks. It reduces what a plugin can do but is not a security boundary without WDAC or AppLocker.

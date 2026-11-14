@@ -119,7 +119,8 @@ $config = Get-CCFConfig -ConfigName "app_settings" -ForceRefresh
 
 ## Deep Merging
 
-ArgosCCF performs deep merging of nested objects:
+ArgosCCF performs deep merging of nested objects. Values in a later layer replace earlier ones,
+nested objects are merged property by property, and arrays are concatenated:
 
 **Factory:**
 ```json
@@ -178,22 +179,21 @@ Set-CCFUserConfig -ConfigName "app_settings" -ConfigObject $userConfig
 
 ## Schema Validation
 
-Validate configuration structure:
+`Test-CCFConfigSchema` checks the top-level properties of a configuration object. The schema has one
+entry per property, with any of `Mandatory`, `Type`, `AllowedValues` and `Default`. Missing
+properties that have a `Default` are added to the object. Problems are logged at ERROR level and the
+function returns `$false`.
 
 ```powershell
-$config = Get-CCFConfig -ConfigName "app_settings"
+$database = (Get-CCFConfig -ConfigName "app_settings").Database
 
 $schema = @{
-    Database = @{
-        Host = [string]
-        Port = [int]
-    }
-    Logging = @{
-        Level = [string]
-    }
+    Host    = @{ Mandatory = $true; Type = [string] }
+    Port    = @{ Type = [long]; Default = 5432 }          # JSON numbers are read as [long]
+    SSLMode = @{ AllowedValues = 'Disable', 'Require'; Default = 'Require' }
 }
 
-$isValid = Test-CCFConfigSchema -Config $config -Schema $schema
+$isValid = Test-CCFConfigSchema -Config $database -Schema $schema
 ```
 
 ## Performance: Caching
@@ -207,15 +207,16 @@ $config1 = Get-CCFConfig -ConfigName "app_settings"
 # Second call: returns from cache (fast)
 $config2 = Get-CCFConfig -ConfigName "app_settings"
 
-# Clear cache manually if needed
-Clear-CCFConfigCache
+# Clear cache manually if needed (alias: Clear-CCFConfigCache)
+Remove-CCFConfigCache
 ```
 
 ## Best Practices
 
 1. **Version Control**: Commit Factory and Presets, gitignore User configs
 2. **Sensitive Data**: Never store secrets in configs; use environment variables or secret managers
-3. **Naming**: Use descriptive config names (e.g., `database_settings`, not `config1`)
+3. **Naming**: Use descriptive config names (e.g., `database_settings`, not `config1`). Names are file
+   names: letters, digits, `.`, `-` and `_` only; anything that looks like a path is refused
 4. **Presets**: Create presets for each environment (dev, staging, prod)
 5. **Validation**: Always validate critical configurations with schemas
 6. **Documentation**: Document expected configuration structure in README

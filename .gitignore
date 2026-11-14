@@ -1,41 +1,30 @@
-# .gitignore for ArgosCCF PowerShell Module
-
-# Logs
-Logs/*.log
-*.log
-Logs/*.zip
-Logs/*.old
-*.old
-
-# User configurations (keep Factory and Presets in repo)
-Configs/User/*.json
-
-# PowerShell Gallery build artifacts
-*.nupkg
-publish/
+# Build output (see build.ps1)
+output/
 
 # Test results
 TestResults/
-*.trx
+testResults.xml
+coverage.xml
 
-# IDE
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+*.old
+temp/
+tmp/
+
+# Packages
+*.nupkg
+
+# Editors and OS
 .vscode/
 .idea/
-*.code-workspace
-
-# OS
+*.swp
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# Temporary files
-*.tmp
-*.temp
-~$*
-
-# Build output (see build.ps1)
-output/
-
-# Output captured from demos and test runs
-Examples/*.txt
-Tests/*.txt
+# Runtime data written next to the module
+Logs/
+Configs/User/

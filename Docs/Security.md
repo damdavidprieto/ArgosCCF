@@ -1,226 +1,110 @@
-# Security Features
+# Security
 
-## Overview
+What ArgosCCF does to protect the scripts that use it, what it does not do, and how to use it safely.
+To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 
-ArgosCCF is built with security as a core principle. This document outlines the security features and best practices.
+## Secret redaction
 
-## Security Features
+Every message and data object passed to `Write-CCFLog` (and the level shortcuts) goes through
+`Protect-CCFSensitiveData` before it reaches the console, a provider or a file.
 
-### 1. L5 Hardening
-
-ArgosCCF implements Level 5 (L5) security hardening across all core modules:
-
-- **Input Validation**: Strict type checking and boundary validation
-- **Path Traversal Protection**: All file paths are validated against allowed base paths
-- **Injection Prevention**: Sanitization of user inputs
-- **Least Privilege**: Minimal permissions required for operations
-
-### 2. Secret Redaction
-
-Automatic detection and redaction of sensitive data in logs:
-
-#### Blacklist-Based Redaction
+- **Key-value pairs in text.** `password=...`, `token: ...`, `apikey=...` and similar become
+  `password=[REDACTED]`. Keywords: password, passwd, pwd, token, api_key, apikey, secret,
+  authorization, auth_token.
+- **Hashtables and objects.** Values whose key contains one of those keywords become `[REDACTED]`.
+  Nested values are processed up to five levels; deeper values become `[DEPTH-LIMIT]` instead of
+  being written unchecked.
+- **Values that look like secrets.** Words of 20 or more characters that mix upper case, lower case,
+  digits and `- _ + =` (see `Test-CCFEntropyContent`) become `[REDACTED-ENTROPY]`.
 
 ```powershell
-$message = "My password is SuperSecret123!"
-$redacted = Redact-CCFSensitiveData -InputData $message
-# Output: "My [REDACTED] is [REDACTED]!"
+Protect-CCFSensitiveData -InputData 'login user=admin password=Secr3t!'
+# login user=admin password=[REDACTED]
+
+Protect-CCFSensitiveData -InputData 'key AKIA-872H-J92K-LL92-MM102-PP01'
+# key [REDACTED-ENTROPY]
 ```
 
-Blacklisted keywords:
-- password, passwd, pwd
-- secret, apikey, token
-- credential, auth
+Redaction is a safety net, not a guarantee: a secret without a keyword and with low variety (for
+example a long lower-case passphrase) is not detected. Do not log secrets on purpose.
 
-#### Entropy-Based Redaction
+## Log integrity
 
-Detects high-entropy strings (likely secrets):
+- **One entry, one line.** Line breaks in messages are written as the text `\n`, and other control
+  characters are removed, so a message cannot add fake entries to a log file.
+- **No terminal escape sequences.** ANSI escape sequences are removed, so a message cannot recolor
+  or hide console output.
+- **Log files stay in the Logs folder.** `-Category` and `Initialize-CCFLogger -FileName` accept only
+  letters, digits, `.`, `-` and `_`. The `Logging.DefaultPath` override in `ccf_core` is used only
+  when, after resolving `..`, it is inside the module folder or inside `$env:CCF_DATA_PATH`.
+
+Security and audit events have their own commands and files:
 
 ```powershell
-$message = "API Key: AKIA-872H-J92K-LL92-MM102-PP01"
-$redacted = Redact-CCFSensitiveData -InputData $message
-# Output: "API Key: [REDACTED-ENTROPY]"
+Write-CCFSecurityRecord -Type 'PathTraversal' -Source 'UserInput' -Payload '../../etc/passwd'   # CCF_Security.log
+Write-CCFAuditRecord -Action 'ConfigChange' -User $env:USERNAME -Resource 'ccf_core'           # CCF_Audit.log
+try { ... } catch { Write-CCFErrorRecord -ErrorRecord $_ -Context 'Backup' }                   # CCF_Errors.log
 ```
 
-### 3. Plugin Signature Verification
-
-Require cryptographically signed plugins:
-
-**Enable in `Configs/Factory/ccf_core.json`:**
-```json
-{
-    "Security": {
-        "RequireSignedPlugins": true
-    }
-}
-```
-
-**Sign a plugin:**
-```powershell
-$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
-Set-AuthenticodeSignature -FilePath "MyPlugin.ps1" -Certificate $cert
-```
-
-### 4. Plugin Sandboxing
-
-Execute untrusted plugins in Constrained Language Mode:
+To review them, read the files in `Get-CCFPath -Target Logs`. With `Initialize-CCFLogger -JsonOutput`
+each line is a JSON object:
 
 ```powershell
-# Normal execution (Full Language Mode)
-$result = Invoke-CCFPlugin -Plugin $plugin
-
-# Sandboxed execution (Constrained Language Mode)
-$result = Invoke-CCFPlugin -Plugin $plugin -HardenedMode
+Get-Content (Join-Path (Get-CCFPath -Target Logs) 'CCF_Security.log')
 ```
 
-With `-HardenedMode` the plugin and its `Before-Execute`/`After-Execute` hooks run in a new restricted
-runspace: no cmdlets or providers are loaded, and Constrained Language Mode blocks method calls on
-non-core .NET types, `Add-Type` and COM objects. Hooks therefore cannot call ArgosCCF functions in this
-mode; they only see the arguments (or the result) passed to them.
+## Configuration files
 
-> **Limits.** Microsoft does not treat Constrained Language Mode as a security boundary on its own; it is
-> only enforced as one together with WDAC or AppLocker. `-HardenedMode` reduces what a plugin can do, but
-> it is not a substitute for trusting the code: for plugins you did not write, also enable
-> `RequireSignedPlugins` and keep the `Plugins` folder writable only by administrators.
+Configuration and preset names become file names, so `Get-CCFConfig`, `Set-CCFUserConfig` and
+`-ActivePresets` accept only plain names (letters, digits, `.`, `-`, `_`). Anything else is refused
+and logged as a security block. Files are read and written as UTF-8.
 
-Plugins only run from inside the module's `Plugins` folder. The path is normalized before the check, so
-`Plugins\..\other.ps1` and sibling folders such as `PluginsX` are rejected, and only `.ps1` files are run.
+Do not store secrets in configuration files. Read them at run time instead, for example from an
+environment variable or with the SecretManagement module (`Get-Secret`).
 
-### 5. Path Traversal Protection
+## Plugins
 
-All file operations validate paths:
+A plugin is PowerShell code that runs with the permissions of the script that calls
+`Invoke-CCFPlugin`. Treat installing a plugin like installing any other script.
 
-```powershell
-# Attempt to access Windows directory
-$path = Get-CCFPath -Target "Logs" -Override "C:\Windows\System32"
+1. **Location.** Only `.ps1` files inside the module's `Plugins` folder run. The path is resolved
+   first, so `Plugins\..\other.ps1` and sibling folders such as `PluginsX` are refused.
+2. **Signatures.** With `Security.RequireSignedPlugins` set to `true`, a plugin runs only if it has a
+   valid Authenticode signature from a trusted certificate. The signature is checked on the same bytes
+   that are then run, so the file cannot be replaced between the check and the execution. On Linux and
+   macOS, where Authenticode is not available, every plugin counts as unsigned (fail closed).
 
-# ArgosCCF blocks this and returns the safe default
-# Result: <repo>\ArgosCCF\Logs
-```
+   ```powershell
+   Set-CCFUserConfig -ConfigName ccf_core -ConfigObject ([pscustomobject]@{ Security = @{ RequireSignedPlugins = $true } })
+   ```
 
-### 6. Forensic Logging
+   To sign a plugin:
 
-All security-relevant events are logged:
+   ```powershell
+   $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
+   Set-AuthenticodeSignature -FilePath .\Plugins\MyPlugin\MyPlugin.ps1 -Certificate $cert
+   ```
 
-```powershell
-# Log security attack
-Log-Attack -Type "PathTraversal" -Source "User Input" -Payload "../../../etc/passwd"
+3. **Hardened mode.** With `-HardenedMode`, the plugin and its `Before-Execute`/`After-Execute` hooks
+   run in a new restricted runspace in Constrained Language Mode: no cmdlets or providers are loaded
+   and calls to non-core .NET methods, `Add-Type` and COM are blocked. Hooks cannot call ArgosCCF in
+   this mode.
 
-# Automatic error logging with context
-try {
-    # Risky operation
-}
-catch {
-    Catch-CCFError -ErrorRecord $_ -Context "PluginExecution"
-}
-```
+> **Limits.** Microsoft does not treat Constrained Language Mode as a security boundary on its own; it
+> is enforced as one only together with WDAC or AppLocker. Hardened mode reduces what a plugin can do,
+> but it does not make untrusted code safe. For plugins you did not write, require signatures and keep
+> the `Plugins` folder writable only by administrators.
 
-## Security Best Practices
+## Parallel execution
 
-### 1. Principle of Least Privilege
+`Invoke-CCFParallel` runs the script block you pass, with your permissions, in separate runspaces.
+Build it from your own code, never from untrusted input.
 
-Run ArgosCCF with minimal required permissions:
+## Checklist
 
-```powershell
-# Don't run as Administrator unless necessary
-# Use specific service accounts for automation
-```
-
-### 2. Secure Configuration Storage
-
-Never store secrets in configuration files:
-
-```powershell
-# ❌ BAD: Hardcoded password
-$config = @{
-    Database = @{
-        Password = "MyPassword123"
-    }
-}
-
-# ✅ GOOD: Use environment variables
-$config = @{
-    Database = @{
-        Password = $env:DB_PASSWORD
-    }
-}
-
-# ✅ BETTER: Use secret management
-$config = @{
-    Database = @{
-        Password = (Get-Secret -Name "DbPassword" -AsPlainText)
-    }
-}
-```
-
-### 3. Plugin Verification
-
-Always verify plugin sources:
-
-```powershell
-# Check plugin signature before execution
-$plugin = Get-CCFPlugins | Where-Object { $_.Name -eq "MyPlugin" }
-
-if ($plugin.Signed) {
-    Log-Info "Plugin is signed and verified"
-    $result = Invoke-CCFPlugin -Plugin $plugin
-}
-else {
-    Log-Warn "Plugin is not signed - executing in hardened mode"
-    $result = Invoke-CCFPlugin -Plugin $plugin -HardenedMode
-}
-```
-
-### 4. Log Review
-
-Regularly review logs for security events:
-
-```powershell
-# Search for attack attempts
-$logs = Get-Content (Get-CCFPath -Target "Logs") -Raw | ConvertFrom-Json
-$attacks = $logs | Where-Object { $_.Category -eq "Attack" }
-```
-
-### 5. Update Regularly
-
-Keep ArgosCCF updated:
-
-```powershell
-Update-Module -Name ArgosCCF
-```
-
-## Reporting Security Vulnerabilities
-
-If you discover a security vulnerability:
-
-1. **DO NOT** create a public GitHub issue
-2. Private report: [Report a vulnerability](https://github.com/damdavidprieto/ArgosCCF/security/advisories/new)
-3. Include:
-   - Description of the vulnerability
-   - Steps to reproduce
-   - Potential impact
-   - Suggested fix (if any)
-
-We will respond within 48 hours.
-
-## Security Checklist
-
-- [ ] Enable `RequireSignedPlugins` in production
-- [ ] Use Constrained Language Mode for untrusted plugins
-- [ ] Store secrets in environment variables or secret managers
-- [ ] Review logs regularly for security events
-- [ ] Keep ArgosCCF updated
-- [ ] Run with least privilege
-- [ ] Validate all user inputs
-- [ ] Use HTTPS for remote operations
-- [ ] Enable audit logging
-- [ ] Implement proper access controls
-
-## Compliance
-
-ArgosCCF supports security compliance requirements:
-
-- **Audit Trails**: All operations are logged with timestamps
-- **Data Sanitization**: Automatic secret redaction
-- **Access Control**: Plugin signature verification
-- **Isolation**: Sandboxed execution environments
+- [ ] Enable `RequireSignedPlugins` where plugins come from other people.
+- [ ] Keep the module folder, and especially `Plugins` and `Configs`, writable only by administrators.
+- [ ] Keep secrets out of configuration files and out of log messages.
+- [ ] Use `Write-CCFSecurityRecord` and `Write-CCFAuditRecord` for events that must be traceable, and
+      review `CCF_Security.log` and `CCF_Audit.log`.
+- [ ] Keep ArgosCCF up to date: `Update-Module ArgosCCF`.

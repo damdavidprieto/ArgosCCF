@@ -1,86 +1,93 @@
 # ArgosCCF
 
-![ArgosCCF Badge](https://img.shields.io/badge/ArgosCCF-v1.4.0-blueviolet) ![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+[![CI](https://github.com/damdavidprieto/ArgosCCF/actions/workflows/ci.yml/badge.svg)](https://github.com/damdavidprieto/ArgosCCF/actions/workflows/ci.yml)
+[![PowerShell Gallery](https://img.shields.io/powershellgallery/v/ArgosCCF.svg)](https://www.powershellgallery.com/packages/ArgosCCF)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**ArgosCCF** (formerly CCF) is a professional, open-source PowerShell framework designed for high-integrity automation, secure configuration management, and parallel execution. It provides a robust foundation for building enterprise-grade PowerShell applications with built-in security hardening.
+Building blocks for PowerShell automation scripts:
 
-## 🚀 Features
+- **Logging** to the console, files and your own providers, with secret redaction, security and
+  audit records, rotation and clean-up. One entry is always one line: messages cannot forge entries.
+- **Layered JSON configuration**: factory defaults, presets and user overrides, merged and cached.
+- **Plugins** that run only from the `Plugins` folder, with optional Authenticode signature checks
+  and an optional restricted runspace.
+- **Parallel execution** in runspace pools, with retries and results in input order.
 
-- **🛡️ Security First**: Built-in L5 hardening, anti-path traversal, and plugin signature verification.
-- **⚙️ Layered Configuration**: Deep merging of Factory, Preset, and User configurations with caching.
-- **📝 Centralized Logging**: Structured JSON logging with automatic rotation, entropy-based secret redaction, and forensic hooks.
-- **🔌 Plugin System**: Modular architecture supporting signed plugins and constrained language mode sandboxing.
-- **⚡ Parallel Execution**: Optimized runspace pools for high-performance concurrent tasks.
+Windows PowerShell 5.1 and PowerShell 7+ on Windows, Linux and macOS. No dependencies. Every command
+has full help: `Get-Help Invoke-CCFParallel -Full`.
 
-## 📦 Installation
-
-Install from the [PowerShell Gallery](https://www.powershellgallery.com/packages/ArgosCCF):
+## Installation
 
 ```powershell
 Install-Module -Name ArgosCCF -Scope CurrentUser
 ```
 
-Or clone and import locally:
+The module loads automatically the first time you call one of its commands.
+
+## Quick start
 
 ```powershell
-git clone https://github.com/damdavidprieto/ArgosCCF.git
-Import-Module ./ArgosCCF/ArgosCCF.psd1
-```
+Initialize-CCFLogger -FileName 'Backup.log'
+Write-CCFLogInfo 'Backup started'
+Write-CCFLog -Message 'Connecting with password=Secr3t!' -Level INFO   # written as password=[REDACTED]
+Write-CCFAuditRecord -Action 'Backup' -User $env:USERNAME -Resource 'D:\Data'
 
-## 📖 Quick Start
+$config = Get-CCFConfig -ConfigName 'ccf_core'
 
-### Logging
-```powershell
-Init-CCFLogger -FileName "MyApp.log" -MaxMB 50
-Log-Info "Application started successfully"
-Log-Warn "Low disk space detected"
-```
-
-### Security and audit records
-```powershell
-Write-CCFSecurityRecord -Type "PathTraversal" -Source "UserInput" -Payload "../../etc/passwd"  # Logs/CCF_Security.log
-Write-CCFAuditRecord -Action "FileDeletion" -User "admin" -Resource "C:\Data\db.bak"            # Logs/CCF_Audit.log
-Remove-CCFOldLog -DaysToKeep 30 -CompressBeforeDelete
-```
-
-Logs go to the module's `Logs` folder, or to `%LOCALAPPDATA%\ArgosCCF\Logs` (`~/.local/share/ArgosCCF/Logs`
-on Linux and macOS) when the module folder is read-only, for example after an all-users install.
-
-### Configuration
-```powershell
-$config = Get-CCFConfig -ConfigName "app_settings"
-Write-Host "Database Host: $($config.Database.Host)"
-```
-
-### Parallel Execution
-```powershell
-$servers = @('Server01', 'Server02', 'Server03')
-$results = Invoke-CCFParallel -InputObjects $servers -ScriptBlock {
-    param($srv)
-    Test-Connection -ComputerName $srv -Count 1 -Quiet
+$results = Invoke-CCFParallel -InputObjects 'web01', 'web02', 'db01' -MaxThreads 3 -ScriptBlock {
+    param($server)
+    Test-Connection -ComputerName $server -Count 1 -Quiet
 }
+$results | Format-Table Target, Status, Output
 ```
 
-## 📚 Documentation
+Logs go to the module's `Logs` folder or, when that folder is read-only (for example after an
+all-users install), to `%LOCALAPPDATA%\ArgosCCF\Logs` (`~/.local/share/ArgosCCF/Logs` on Linux and
+macOS). `Get-CCFPath -Target Logs` shows where.
 
-- [Getting Started](Docs/Getting-Started.md)
-- [Configuration Guide](Docs/Configuration-Guide.md)
-- [API Reference](Docs/API-Reference.md)
-- [Plugin Development](Docs/Plugin-Development.md)
-- [Security](Docs/Security.md)
-- [Module Structure](Docs/Module-Structure.md)
+More in [`Examples/`](Examples/): logging, configuration layers, plugins and parallel execution.
+Each example runs as part of the tests.
 
-## 🤝 Contributing
+## Commands
 
-We welcome contributions! Please check out our [Contribution Guidelines](CONTRIBUTING.md) for details on how to submit pull requests, report issues, and follow our coding standards.
+| Area | Commands |
+|---|---|
+| Logging | `Initialize-CCFLogger`, `Write-CCFLog`, `Write-CCFLogInfo`, `Write-CCFLogSuccess`, `Write-CCFLogWarn`, `Write-CCFLogError`, `Write-CCFLogCritical`, `Write-CCFLogDebug`, `Write-CCFLogHeader`, `Set-CCFLogLevel`, `Register-CCFLogProvider`, `Register-CCFSIEMProvider` |
+| Security and audit | `Write-CCFSecurityRecord`, `Write-CCFAuditRecord`, `Write-CCFErrorRecord`, `Protect-CCFSensitiveData`, `Test-CCFEntropyContent`, `Remove-CCFOldLog` |
+| Configuration | `Get-CCFConfig`, `Set-CCFUserConfig`, `Merge-CCFConfig`, `Test-CCFConfigSchema`, `Remove-CCFConfigCache` |
+| Plugins | `Get-CCFPlugin`, `Invoke-CCFPlugin`, `Confirm-CCFPluginSignature` |
+| Execution | `Invoke-CCFParallel` |
+| Environment | `Get-CCFPath`, `Initialize-CCFEnvironment`, `Test-CCFHealth`, `Submit-CCFHeartbeat` |
 
-## 🔒 Security
+Older names such as `Log-Info`, `Init-CCFLogger`, `Get-CCFPlugins` and `Catch-CCFError` remain as
+aliases. See the [API reference](Docs/API-Reference.md) for every command and alias.
 
-Security is a top priority for ArgosCCF. See our [Security Policy](SECURITY.md) for supported versions and how to report vulnerabilities securely.
+## Documentation
 
-## 📄 License
+- [Getting started](Docs/Getting-Started.md)
+- [Configuration guide](Docs/Configuration-Guide.md)
+- [Plugin development](Docs/Plugin-Development.md)
+- [Security](Docs/Security.md): what is protected, what is not, and a checklist
+- [Module structure](Docs/Module-Structure.md)
+- [API reference](Docs/API-Reference.md)
 
-This project is licensed under the [MIT License](LICENSE).
+## Development
 
----
-*Built with ❤️ by [David Prieto](https://github.com/damdavidprieto)*
+```powershell
+.\build.ps1 -InstallDependencies   # first time: Pester 5 and PSScriptAnalyzer
+.\build.ps1                        # analysis, tests, and the package in output\ArgosCCF
+```
+
+The repository follows the layout of the [Sampler](https://github.com/gaelcolas/Sampler) module
+template: the package is built from the runtime files only, and the QA tests check that every
+command has complete help, that the code passes PSScriptAnalyzer with
+[`PSScriptAnalyzerSettings.psd1`](PSScriptAnalyzerSettings.psd1) (including Windows PowerShell 5.1
+compatibility) and that the changelog is up to date. CI runs on Windows PowerShell 5.1 and on
+PowerShell 7 on Windows, Linux and macOS, and installs the package with `Install-Module`.
+Pushing a `v*` tag publishes the version to the PowerShell Gallery.
+
+See [CONTRIBUTING](.github/CONTRIBUTING.md), [SECURITY](SECURITY.md) and the [CHANGELOG](CHANGELOG.md).
+
+## License
+
+[MIT](LICENSE)

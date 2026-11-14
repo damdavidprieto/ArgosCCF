@@ -1,15 +1,8 @@
 {
     "Logging": {
-        "DefaultPath": null,
-        "MaxFileSizeMB": 10,
-        "RetentionDays": 30,
-        "MaxRollingFiles": 5,
-        "DefaultLevel": "INFO",
-        "EnableJson": true,
-        "EnableCompression": false
+        "DefaultPath": null
     },
-    "Parallel": {
-        "DefaultMaxThreads": 4,
-        "DefaultRetryCount": 1
+    "Security": {
+        "RequireSignedPlugins": false
     }
 }

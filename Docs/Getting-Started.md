@@ -1,111 +1,79 @@
-# Getting Started with ArgosCCF
+# Getting started
 
-## Introduction
-
-**ArgosCCF** is a professional PowerShell framework designed for secure automation, configuration management, and high-performance parallel execution. This guide will help you get started quickly.
-
-## Installation
-
-### From PowerShell Gallery
+## Install
 
 ```powershell
 Install-Module -Name ArgosCCF -Scope CurrentUser
-Import-Module ArgosCCF
 ```
 
-### From Source
+Windows PowerShell 5.1 or PowerShell 7+. The module loads automatically the first time you call one
+of its commands. To work from source instead:
 
-1. Clone the repository:
 ```powershell
 git clone https://github.com/damdavidprieto/ArgosCCF.git
-cd ArgosCCF
+Import-Module .\ArgosCCF\ArgosCCF.psd1
 ```
 
-2. Import the module:
+## 1. Logging
+
 ```powershell
-Import-Module .\ArgosCCF.psd1
+Initialize-CCFLogger -FileName 'MyApp.log' -MaxMB 50 -MaxRolling 5
+
+Write-CCFLogInfo 'Application started'
+Write-CCFLogWarn 'Low disk space' @{ Drive = 'C:'; FreePercent = 9 }
+Write-CCFLogError 'Could not connect to the database'
+Write-CCFLogSuccess 'Done'
 ```
 
-## Quick Start
+Messages go to the console and to `MyApp.log` in `Get-CCFPath -Target Logs`. Secrets in messages and
+data are redacted. `Set-CCFLogLevel -Level DEBUG` also logs `Write-CCFLogDebug` messages, and
+`Initialize-CCFLogger -JsonOutput` writes one JSON object per line.
 
-### 1. Initialize Logging
+## 2. Configuration
+
+Configurations are JSON files under `Configs`: factory defaults in `Factory/<name>.json`, optional
+presets in `Presets/<preset>.json` and user overrides in `User/<name>.json`, merged in that order.
 
 ```powershell
-# Initialize the logger with a custom filename
-Init-CCFLogger -FileName "MyApp.log" -MaxMB 50 -MaxRolling 5
+$config = Get-CCFConfig -ConfigName 'app_settings' -ActivePresets 'production'
+$config.Database.Host
 
-# Log messages at different levels
-Log-Info "Application started"
-Log-Warn "Low disk space detected"
-Log-Error "Failed to connect to database"
-Log-Success "Operation completed successfully"
-Log-Critical "System failure detected"
+Set-CCFUserConfig -ConfigName 'app_settings' -ConfigObject ([pscustomobject]@{ Database = @{ Host = 'localhost' } })
 ```
 
-### 2. Configuration Management
+See the [configuration guide](Configuration-Guide.md).
 
-ArgosCCF uses a layered configuration system (Factory → Presets → User):
+## 3. Plugins
 
 ```powershell
-# Load a configuration
-$config = Get-CCFConfig -ConfigName "app_settings"
-
-# Access configuration values
-Write-Host "Database: $($config.Database.Host)"
-
-# Save user-specific overrides
-$userConfig = @{
-    Database = @{
-        Host = "localhost"
-        Port = 5432
-    }
-}
-Set-CCFUserConfig -ConfigName "app_settings" -ConfigObject $userConfig
+Get-CCFPlugin | Format-Table Name, Version, Signed
+$plugin = Get-CCFPlugin | Where-Object Name -EQ 'HelloWorld'
+Invoke-CCFPlugin -Plugin $plugin -Arguments @{ Name = 'Ana' }
 ```
 
-### 3. Plugin System
+See [plugin development](Plugin-Development.md).
+
+## 4. Parallel execution
 
 ```powershell
-# Discover available plugins
-$plugins = Get-CCFPlugins
-
-# Execute a plugin
-$result = Invoke-CCFPlugin -Plugin $plugins[0] -Arguments @{ TaskName = "Backup" }
-
-# Execute with security hardening (Constrained Language Mode)
-$result = Invoke-CCFPlugin -Plugin $plugins[0] -HardenedMode
-```
-
-### 4. Parallel Execution
-
-```powershell
-# Define a task
-$scriptBlock = {
+$results = Invoke-CCFParallel -InputObjects 'Server01', 'Server02', 'Server03' -MaxThreads 3 -ScriptBlock {
     param($server)
     Test-Connection -ComputerName $server -Count 1 -Quiet
 }
 
-# Execute in parallel across multiple servers
-$servers = @('Server01', 'Server02', 'Server03')
-$results = Invoke-CCFParallel -ScriptBlock $scriptBlock -InputObjects $servers -MaxThreads 4
-
-# Process results
 foreach ($result in $results) {
-    Write-Host "$($result.Target): $($result.Status)"
+    "$($result.Target): $($result.Status) $($result.Output)"
 }
 ```
 
-## Next Steps
+The script block runs in its own runspace: pass what it needs with `-Arguments`.
 
-- Read the [Configuration Guide](Configuration-Guide.md) for advanced configuration scenarios
-- Learn how to create plugins in the [Plugin Development Guide](Plugin-Development.md)
-- Review [Security Best Practices](Security.md)
-- Check the [API Reference](API-Reference.md) for complete function documentation
+## Examples
 
-## Example Scripts
+The `Examples/` folder has one runnable script per area: `01-Logging.ps1`, `02-Configuration.ps1`,
+`03-Plugins.ps1` and `04-Parallel.ps1`.
 
-See the `Examples/` directory for complete working examples:
-- `Demo.ps1` - Full integration demo
-- `Basic-Logging.ps1` - Logging examples
-- `Configuration-Layers.ps1` - Configuration merging
-- `Parallel-Execution.ps1` - Multi-threaded tasks
+## Next
+
+- [Security](Security.md): what ArgosCCF protects and how to use it safely.
+- [API reference](API-Reference.md): every command, or `Get-Help <command> -Full`.

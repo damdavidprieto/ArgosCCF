@@ -12,7 +12,7 @@
         It "Debe proteger passwords en strings (Protect-CCFSensitiveData)" {
             Protect-CCFSensitiveData -InputData "password=Secret123!" | Should -Match "\[REDACTED\]"
         }
-        
+
         It "Debe proteger por entropía en diccionarios (Protect-CCFSensitiveData)" {
             $data = @{ Token = "Ak82_mN91-Zq5v_Pz92" }
             $res = Protect-CCFSensitiveData -InputData $data
@@ -46,7 +46,7 @@
         It "El alias Test-CCFHighEntropy debe apuntar a Test-CCFEntropyContent" {
             (Get-Alias Test-CCFHighEntropy).Definition | Should -Be "Test-CCFEntropyContent"
         }
-        
+
         It "El alias Log-Attack debe apuntar a Write-CCFSecurityRecord" {
             (Get-Alias Log-Attack).Definition | Should -Be "Write-CCFSecurityRecord"
         }

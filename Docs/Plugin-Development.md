@@ -1,173 +1,110 @@
-# Plugin Development Guide
+# Plugin development
 
-## Overview
+A plugin is a PowerShell script in the module's `Plugins` folder (or a subfolder of it) that
+`Invoke-CCFPlugin` runs with a hashtable of arguments and whose return value it passes back.
+`Examples/03-Plugins.ps1` creates, runs and removes a plugin end to end.
 
-ArgosCCF's plugin system allows you to extend the framework with custom functionality while maintaining security and isolation.
-
-## Plugin Structure
-
-### Basic Plugin
-
-A minimal plugin is a PowerShell script (`.ps1`) with metadata:
+## A minimal plugin
 
 ```powershell
-<#
-.NAME
-MyPlugin
-
-.DESCRIPTION
-A simple example plugin
-
-.VERSION
-1.0.0
-
-.AUTHOR
-Your Name
-#>
-
+# Plugins/Greeter/Greeter.ps1
 param($Arguments)
 
-Write-Host "Hello from MyPlugin!"
-return "Success"
+$name = if ($Arguments.Name) { $Arguments.Name } else { 'World' }
+Write-CCFLogInfo "Greeting $name"
+@{ Greeting = "Hello, $name!" }
 ```
 
-### Plugin with Manifest (Recommended)
+`param($Arguments)` must be the first statement of the script. Return data instead of writing it to
+the console, so the caller can use it.
 
-Create a `ccf_plugin.json` file alongside your plugin:
+## Metadata
 
-**ccf_plugin.json:**
+`Get-CCFPlugin` reads the name, version, author and description from a `ccf_plugin.json` file in the
+plugin's folder:
+
 ```json
 {
-    "Name": "MyPlugin",
-    "Version": "2.0.0",
+    "Name": "Greeter",
+    "Version": "1.0.0",
     "Author": "Your Name",
-    "Description": "Advanced plugin with manifest"
+    "Description": "Says hello"
 }
 ```
 
-**MyPlugin.ps1:**
+Without a manifest it looks for comment keywords in the script (`.NAME`, `.DESCRIPTION`, `.VERSION`,
+`.AUTHOR`, or `CCF_PLUGIN_NAME:` and similar) and falls back to the file name.
+
+## Lifecycle hooks
+
+A plugin can define `Before-Execute` and `After-Execute`. They are read from the script without
+running it, then called around the main code: `Before-Execute` receives `-Arguments`, `After-Execute`
+receives `-Result` (what the script returned). `-SkipHooks` skips them.
+
 ```powershell
 param($Arguments)
 
-Log-Info "Executing MyPlugin v2.0.0"
-# Your plugin logic here
-return @{ Status = "Success"; Data = $Arguments }
-```
-
-## Lifecycle Hooks
-
-Plugins can implement lifecycle hooks for setup and teardown:
-
-```powershell
 function Before-Execute {
     param($Arguments)
-    Log-Info "Initializing plugin resources..."
-    # Setup code here
+    Write-CCFLogInfo "Preparing $($Arguments.Target)"
 }
 
 function After-Execute {
     param($Result)
-    Log-Info "Cleaning up plugin resources..."
-    # Cleanup code here
+    Write-CCFLogInfo "Finished with status $($Result.Status)"
 }
 
-# Main execution
-param($Arguments)
-Log-Info "Main plugin logic executing"
-return "Result"
+# Main code
+@{ Status = 'Success'; Target = $Arguments.Target }
 ```
 
-## Security Features
-
-### Signature Verification
-
-For production environments, sign your plugins:
+## Running a plugin
 
 ```powershell
-# Get your code signing certificate
-$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert
-
-# Sign the plugin
-Set-AuthenticodeSignature -FilePath "MyPlugin.ps1" -Certificate $cert
+$plugin = Get-CCFPlugin | Where-Object Name -EQ 'Greeter'
+$result = Invoke-CCFPlugin -Plugin $plugin -Arguments @{ Name = 'Ana' }
 ```
 
-Enable signature verification in `Configs/Factory/ccf_core.json`:
+`Invoke-CCFPlugin` refuses any script outside the `Plugins` folder, logs errors with
+`Write-CCFErrorRecord` and returns `$null` when the plugin fails.
 
-```json
-{
-    "Security": {
-        "RequireSignedPlugins": true
-    }
-}
-```
-
-### Sandboxing
-
-Execute plugins in a restricted runspace with Constrained Language Mode:
+## Hardened mode
 
 ```powershell
-$result = Invoke-CCFPlugin -Plugin $myPlugin -HardenedMode
+$result = Invoke-CCFPlugin -Plugin $plugin -Arguments @{ Name = 'Ana' } -HardenedMode
 ```
 
-In this mode the hooks run in the same restricted runspace as the plugin, so they cannot call ArgosCCF
-or other cmdlets. Constrained Language Mode is not a security boundary by itself (see
-[Security](Security.md#4-plugin-sandboxing)); combine it with `RequireSignedPlugins` for code you did
-not write.
+With `-HardenedMode` the plugin and its hooks run in a new runspace in Constrained Language Mode with
+no cmdlets or providers loaded. Only the language itself is available: variables, loops, hashtables,
+arithmetic and string operations, and methods of core types. ArgosCCF commands (`Write-CCFLogInfo`),
+other cmdlets, `Add-Type` and most .NET calls fail. Write plugins meant for this mode so that they only
+compute and return data, and do the logging in the caller.
 
-## Best Practices
+Hardened mode reduces what a plugin can do but is not a security boundary on its own; see
+[Security](Security.md#plugins).
 
-1. **Use Manifests**: Always provide a `ccf_plugin.json` for metadata
-2. **Parameter Validation**: Validate all input parameters
-3. **Error Handling**: Use try/catch and log errors appropriately
-4. **Return Values**: Return structured data (hashtables or PSCustomObjects)
-5. **Logging**: Use ArgosCCF logging functions (Log-Info, Log-Error, etc.)
-6. **Avoid Global State**: Keep plugins self-contained
+## Signatures
 
-## Example: System Info Plugin
-
-**SystemInfo.ps1:**
-```powershell
-<#
-.NAME
-SystemInfo
-
-.DESCRIPTION
-Collects system information
-
-.VERSION
-1.0.0
-#>
-
-param($Arguments)
-
-try {
-    $info = @{
-        Hostname = $env:COMPUTERNAME
-        OS = (Get-CimInstance Win32_OperatingSystem).Caption
-        Memory = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 2)
-        Uptime = (Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
-    }
-    
-    Log-Success "System info collected successfully"
-    return $info
-}
-catch {
-    Log-Error "Failed to collect system info: $($_.Exception.Message)"
-    return $null
-}
-```
-
-## Testing Your Plugin
+When `Security.RequireSignedPlugins` is `true` in the `ccf_core` configuration, only plugins with a
+valid Authenticode signature run. Sign a plugin after every change:
 
 ```powershell
-# Load ArgosCCF
-Import-Module ArgosCCF
-
-# Place your plugin in the Plugins directory
-Copy-Item "MyPlugin.ps1" -Destination (Get-CCFPath -Target "Plugins")
-
-# Discover and execute
-$plugins = Get-CCFPlugins
-$myPlugin = $plugins | Where-Object { $_.Name -eq "MyPlugin" }
-$result = Invoke-CCFPlugin -Plugin $myPlugin
+$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
+Set-AuthenticodeSignature -FilePath .\Plugins\Greeter\Greeter.ps1 -Certificate $cert
 ```
+
+Enable the check for this installation with a user setting:
+
+```powershell
+Set-CCFUserConfig -ConfigName ccf_core -ConfigObject ([pscustomobject]@{ Security = @{ RequireSignedPlugins = $true } })
+```
+
+`Get-CCFPlugin` shows whether each plugin is signed in its `Signed` property.
+
+## Checklist
+
+- `param($Arguments)` first; return data, do not print it.
+- A `ccf_plugin.json` with name and version.
+- Errors: let them throw, or catch them and return a result that says what failed.
+- If it may run with `-HardenedMode`, use only language features.
+- Sign it when the installation requires signed plugins.

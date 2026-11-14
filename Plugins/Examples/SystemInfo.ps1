@@ -3,55 +3,36 @@
 SystemInfo
 
 .DESCRIPTION
-Collects and returns system information
+Returns basic information about the machine and the PowerShell session.
 
 .VERSION
-1.0.0
+1.1.0
 
 .AUTHOR
-ArgosCCF Team
+David Prieto
 #>
 
+# Example plugin: works on Windows, Linux and macOS and returns its data instead of printing it.
+# Pass -Arguments @{ IncludeEnvironment = $true } to add the PATH entries.
 param($Arguments)
 
-try {
-    Log-Info "Collecting system information..."
-    
-    # Gather system information
-    $os = Get-CimInstance -ClassName Win32_OperatingSystem
-    $cs = Get-CimInstance -ClassName Win32_ComputerSystem
-    $cpu = Get-CimInstance -ClassName Win32_Processor | Select-Object -First 1
-    
-    $systemInfo = @{
-        Hostname             = $env:COMPUTERNAME
-        OS                   = $os.Caption
-        OSVersion            = $os.Version
-        Architecture         = $os.OSArchitecture
-        TotalMemoryGB        = [math]::Round($cs.TotalPhysicalMemory / 1GB, 2)
-        FreeMemoryGB         = [math]::Round($os.FreePhysicalMemory / 1MB / 1024, 2)
-        CPU                  = $cpu.Name
-        CPUCores             = $cpu.NumberOfCores
-        CPULogicalProcessors = $cpu.NumberOfLogicalProcessors
-        Uptime               = (Get-Date) - $os.LastBootUpTime
-        CurrentUser          = $env:USERNAME
-        PowerShellVersion    = $PSVersionTable.PSVersion.ToString()
-        Timestamp            = Get-Date
-    }
-    
-    Log-Success "System information collected successfully"
-    
-    # Display summary
-    Write-Host "`nSystem Information:" -ForegroundColor Cyan
-    Write-Host "  Hostname: $($systemInfo.Hostname)" -ForegroundColor Yellow
-    Write-Host "  OS: $($systemInfo.OS)" -ForegroundColor Yellow
-    Write-Host "  Memory: $($systemInfo.FreeMemoryGB)GB free / $($systemInfo.TotalMemoryGB)GB total" -ForegroundColor Yellow
-    Write-Host "  CPU: $($systemInfo.CPU)" -ForegroundColor Yellow
-    Write-Host "  Uptime: $($systemInfo.Uptime.Days) days, $($systemInfo.Uptime.Hours) hours" -ForegroundColor Yellow
-    
-    return $systemInfo
+Write-CCFLogInfo 'Collecting system information...'
+
+$systemInfo = [ordered]@{
+    Hostname          = [Environment]::MachineName
+    User              = [Environment]::UserName
+    OS                = [Environment]::OSVersion.VersionString
+    Is64BitOS         = [Environment]::Is64BitOperatingSystem
+    ProcessorCount    = [Environment]::ProcessorCount
+    PowerShellVersion = $PSVersionTable.PSVersion.ToString()
+    PowerShellEdition = $PSVersionTable.PSEdition
+    SessionStarted    = (Get-Process -Id $PID).StartTime
+    Timestamp         = Get-Date
 }
-catch {
-    Log-Error "Failed to collect system information: $($_.Exception.Message)"
-    Catch-CCFError -ErrorRecord $_ -Context "SystemInfoPlugin"
-    return $null
+
+if ($Arguments.IncludeEnvironment) {
+    $systemInfo.Path = $env:PATH -split [System.IO.Path]::PathSeparator
 }
+
+Write-CCFLogSuccess "System information collected for $($systemInfo.Hostname)"
+return [pscustomobject]$systemInfo

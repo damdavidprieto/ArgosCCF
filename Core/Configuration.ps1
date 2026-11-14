@@ -1,24 +1,69 @@
-﻿<#
+﻿# ArgosCCF configuration manager.
+#
+# Layered JSON configuration: Configs/Factory/<name>.json, then optional presets from
+# Configs/Presets/<preset>.json, then the user's overrides in Configs/User/<name>.json, merged
+# in that order and cached in memory.
+
+$script:ConfigCache = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
+
+function Test-CCFConfigName {
+    <#
     .SYNOPSIS
-    CCF Configuration Manager - Deep Merge & Layered (Optimized)
-    
-    .DESCRIPTION
-    Gestiona la configuración del framework y aplicaciones basadas en CCF.
-    Incluye un sistema de caché en memoria para alto rendimiento.
-#>
+        True when a configuration or preset name is a plain file name, not a path.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([AllowEmptyString()][string]$Name)
 
-$script:ConfigCache = New-Object -TypeName 'System.Collections.Concurrent.ConcurrentDictionary[string,object]'
+    return ($Name -match '^[A-Za-z0-9][A-Za-z0-9._-]*$' -and $Name -notmatch '\.\.')
+}
 
-# --- Auxiliar: Fusión Recursiva (Deep Merge) ---
+function Read-CCFJsonFile {
+    <#
+    .SYNOPSIS
+        Reads a JSON file as UTF-8 (Windows PowerShell 5.1 would read it as ANSI otherwise).
+    #>
+    [CmdletBinding()]
+    [OutputType([object])]
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    return (Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json)
+}
+
 function Merge-CCFConfig {
+    <#
+    .SYNOPSIS
+        Merges one configuration object into another, recursively.
+
+    .DESCRIPTION
+        Copies every property of -Override into -Base and returns -Base. Nested objects are
+        merged property by property, arrays are concatenated, and any other value in -Override
+        replaces the one in -Base. -Base is modified in place; pass a copy if you need to keep
+        the original. Get-CCFConfig uses it to apply presets and user settings.
+
+    .PARAMETER Base
+        The object to merge into. It is modified.
+
+    .PARAMETER Override
+        The object whose values take precedence.
+
+    .EXAMPLE
+        $base = '{"Logging":{"Level":"INFO","Path":"Logs"}}' | ConvertFrom-Json
+        $over = '{"Logging":{"Level":"DEBUG"}}' | ConvertFrom-Json
+        (Merge-CCFConfig -Base $base -Override $over).Logging
+
+        Returns Level = DEBUG and Path = Logs.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory = $true)]
         [PSCustomObject]$Base,
-        
+
         [Parameter(Mandatory = $true)]
         [PSCustomObject]$Override
     )
-    
+
     foreach ($prop in $Override.PSObject.Properties) {
         if ($null -eq $Base.PSObject.Properties[$prop.Name]) {
             $Base | Add-Member -NotePropertyName $prop.Name -NotePropertyValue $prop.Value -Force
@@ -26,9 +71,9 @@ function Merge-CCFConfig {
         else {
             $baseVal = $Base.($prop.Name)
             $overVal = $prop.Value
-            
+
             if ($baseVal -is [PSCustomObject] -and $overVal -is [PSCustomObject]) {
-                Merge-CCFConfig -Base $baseVal -Override $overVal
+                $null = Merge-CCFConfig -Base $baseVal -Override $overVal
             }
             elseif ($baseVal -is [array] -and $overVal -is [array]) {
                 $Base.($prop.Name) = $baseVal + $overVal
@@ -41,169 +86,257 @@ function Merge-CCFConfig {
     return $Base
 }
 
-# --- Carga de Configuración con Caché ---
 function Get-CCFConfig {
+    <#
+    .SYNOPSIS
+        Loads a configuration by name, merging the factory, preset and user layers.
+
+    .DESCRIPTION
+        Reads Configs/Factory/<ConfigName>.json, merges the section named <ConfigName> of each
+        preset in Configs/Presets/<preset>.json, then merges Configs/User/<ConfigName>.json, and
+        returns the result. The result is cached per name and preset list; use -ForceRefresh
+        or Remove-CCFConfigCache after changing the files. Names must be plain file names:
+        anything that looks like a path is refused and logged as a security block.
+        The returned object is the cached one, so changes to it are visible to later calls.
+
+    .PARAMETER ConfigName
+        Name of the configuration, without .json. Letters, digits, '.', '-' and '_'.
+
+    .PARAMETER ActivePresets
+        Presets to apply, in order, between the factory and the user layers.
+
+    .PARAMETER ForceRefresh
+        Read the files again instead of returning the cached result.
+
+    .EXAMPLE
+        (Get-CCFConfig -ConfigName 'ccf_core').Logging
+
+        Returns the logging section of the core configuration.
+
+    .EXAMPLE
+        Get-CCFConfig -ConfigName 'demo_app' -ActivePresets 'Production' -ForceRefresh
+
+        Reloads demo_app with the Production preset applied.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$ConfigName,
-        
+
         [string[]]$ActivePresets = @(),
-        
+
         [switch]$ForceRefresh
     )
-    
-    # 1. Verificar Caché (Si no hay ForceRefresh)
-    $cacheKey = "$ConfigName" + ($ActivePresets -join ",")
+
+    # Security: names become file names, so refuse anything that could leave Configs.
+    foreach ($name in @($ConfigName) + $ActivePresets) {
+        if (-not (Test-CCFConfigName -Name $name)) {
+            Write-CCFLogError "BLOQUEO DE SEGURIDAD: Intento de Path Traversal o nombre de configuración inválido: $name"
+            return $null
+        }
+    }
+
+    $cacheKey = $ConfigName + '|' + ($ActivePresets -join ',')
     $cachedVal = $null
     if (-not $ForceRefresh -and $script:ConfigCache.TryGetValue($cacheKey, [ref]$cachedVal)) {
         Write-CCFLogDebug "Retornando configuración desde caché para: $ConfigName"
         return $cachedVal
     }
 
-    # SEGURIDAD: Sanitización de ConfigName (Anti-PathTraversal)
-    if ($ConfigName -match "[\\/:]" -or $ConfigName -match "\.\.") {
-        Log-Error "BLOQUEO DE SEGURIDAD: Intento de Path Traversal o nombre de configuración inválido: $ConfigName"
-        return $null
-    }
+    $configRoot = Get-CCFPath -Target 'Configs'
+    $factoryPath = Join-Path (Join-Path $configRoot 'Factory') "$ConfigName.json"
+    $presetsPath = Join-Path $configRoot 'Presets'
+    $userPath = Join-Path (Join-Path $configRoot 'User') "$ConfigName.json"
 
-    $configRoot = Get-CCFPath -Target "Configs"
-    $factoryPath = Join-Path $configRoot "Factory/$ConfigName.json"
-    $presetsPath = Join-Path $configRoot "Presets"
-    $userPath = Join-Path $configRoot "User/$ConfigName.json"
-    
     $finalConfig = [PSCustomObject]@{}
-    
-    # 1. Cargar Factory
-    if (Test-Path $factoryPath) {
+
+    if (Test-Path -LiteralPath $factoryPath) {
         try {
-            $finalConfig = Get-Content $factoryPath -Raw | ConvertFrom-Json
-            Log-Debug "Base cargada para: $ConfigName"
+            $finalConfig = Read-CCFJsonFile -Path $factoryPath
+            Write-CCFLogDebug "Base cargada para: $ConfigName"
         }
         catch {
-            Log-Error "Fallo crítico al cargar Factory Config ${ConfigName}: $($_.Exception.Message)"
+            Write-CCFLogError "Fallo crítico al cargar Factory Config ${ConfigName}: $($_.Exception.Message)"
             return $null
         }
     }
-    
-    # 2. Cargar Presets
+
     foreach ($preset in $ActivePresets) {
         $pPath = Join-Path $presetsPath "$preset.json"
-        if (Test-Path $pPath) {
+        if (Test-Path -LiteralPath $pPath) {
             try {
-                $pContent = Get-Content $pPath -Raw | ConvertFrom-Json
+                $pContent = Read-CCFJsonFile -Path $pPath
                 if ($pContent.PSObject.Properties[$ConfigName]) {
                     $finalConfig = Merge-CCFConfig -Base $finalConfig -Override $pContent.$ConfigName
                 }
             }
-            catch { Log-Warn "Fallo al aplicar preset '$preset'" }
+            catch { Write-CCFLogWarn "Fallo al aplicar preset '$preset'" }
         }
     }
-    
-    # 3. Cargar User
-    if (Test-Path $userPath) {
+
+    if (Test-Path -LiteralPath $userPath) {
         try {
-            $uContent = Get-Content $userPath -Raw | ConvertFrom-Json
-            $finalConfig = Merge-CCFConfig -Base $finalConfig -Override $uContent
+            $finalConfig = Merge-CCFConfig -Base $finalConfig -Override (Read-CCFJsonFile -Path $userPath)
         }
-        catch { Log-Warn "Fallo al cargar User Config para $ConfigName" }
+        catch { Write-CCFLogWarn "Fallo al cargar User Config para $ConfigName" }
     }
-    
-    # Guardar en Caché
-    $null = $script:ConfigCache.TryAdd($cacheKey, $finalConfig)
+
+    $script:ConfigCache[$cacheKey] = $finalConfig
     return $finalConfig
 }
 
-# --- Guardado e Invalidación de Caché ---
 function Set-CCFUserConfig {
+    <#
+    .SYNOPSIS
+        Saves user settings for a configuration and clears its cached copies.
+
+    .DESCRIPTION
+        Writes -ConfigObject as JSON (UTF-8) to Configs/User/<ConfigName>.json, the top layer
+        that Get-CCFConfig merges over the factory and preset layers. Cached results for that
+        name are removed, so the next Get-CCFConfig reads the new values.
+        Names must be plain file names; anything that looks like a path is refused.
+        Supports -WhatIf and -Confirm.
+
+    .PARAMETER ConfigName
+        Name of the configuration, without .json. Letters, digits, '.', '-' and '_'.
+
+    .PARAMETER ConfigObject
+        The settings to save. Usually only the values that differ from the factory file.
+
+    .EXAMPLE
+        Set-CCFUserConfig -ConfigName 'ccf_core' -ConfigObject ([pscustomobject]@{ Security = @{ RequireSignedPlugins = $true } })
+
+        Requires signed plugins for this installation.
+    #>
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
         [string]$ConfigName,
-        
+
         [Parameter(Mandatory = $true)]
         [PSCustomObject]$ConfigObject
     )
-    
-    $userDir = Join-Path (Get-CCFPath -Target "Configs") "User"
-    if (-not (Test-Path $userDir)) { New-Item -ItemType Directory -Path $userDir -Force | Out-Null }
-    
+
+    if (-not (Test-CCFConfigName -Name $ConfigName)) {
+        Write-CCFLogError "BLOQUEO DE SEGURIDAD: Intento de Path Traversal o nombre de configuración inválido: $ConfigName"
+        return
+    }
+
+    $userDir = Join-Path (Get-CCFPath -Target 'Configs') 'User'
     $userPath = Join-Path $userDir "$ConfigName.json"
-    
+    if (-not $PSCmdlet.ShouldProcess($userPath, 'Save user configuration')) { return }
+
     try {
-        $ConfigObject | ConvertTo-Json -Depth 10 | Set-Content $userPath -Force
-        Log-Success "Configuración guardada en ${userPath}"
-        
-        # Invalidar todas las entradas de caché para este ConfigName
-        $keysToClear = $script:ConfigCache.Keys | Where-Object { $_ -like "$ConfigName*" }
-        foreach ($k in $keysToClear) { 
+        if (-not (Test-Path -LiteralPath $userDir)) { New-Item -ItemType Directory -Path $userDir -Force | Out-Null }
+        $ConfigObject | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $userPath -Encoding UTF8 -Force -ErrorAction Stop
+        Write-CCFLogSuccess "Configuración guardada en ${userPath}"
+
+        foreach ($key in @($script:ConfigCache.Keys | Where-Object { $_.StartsWith("$ConfigName|") })) {
             $removed = $null
-            $null = $script:ConfigCache.TryRemove($k, [ref]$removed) 
+            $null = $script:ConfigCache.TryRemove($key, [ref]$removed)
         }
         Write-CCFLogDebug "Caché invalidada para: $ConfigName"
     }
     catch {
-        Log-Error "No se pudo guardar en $userPath"
+        Write-CCFLogError "No se pudo guardar en ${userPath}: $($_.Exception.Message)"
     }
 }
 
-# --- Limpieza de Caché ---
 function Remove-CCFConfigCache {
+    <#
+    .SYNOPSIS
+        Clears the in-memory configuration cache.
+
+    .DESCRIPTION
+        Removes every cached result of Get-CCFConfig, so the next call reads the JSON files
+        again. Use it after editing configuration files outside Set-CCFUserConfig. The files
+        are not touched. The alias Clear-CCFConfigCache is kept for older scripts.
+
+    .EXAMPLE
+        Remove-CCFConfigCache
+
+        Clears the cache.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Clears an in-memory cache only; no files are changed.')]
+    [CmdletBinding()]
+    param()
+
     $script:ConfigCache.Clear()
-    Write-CCFLogInfo "Caché de configuración vaciada."
+    Write-CCFLogInfo 'Caché de configuración vaciada.'
 }
 
-# --- Validación de Esquiva (Schema Professional API) ---
 function Test-CCFConfigSchema {
+    <#
+    .SYNOPSIS
+        Validates a configuration object against a simple schema and fills in defaults.
+
+    .DESCRIPTION
+        The schema is a hashtable with one entry per property. Each entry is a hashtable that
+        can contain Mandatory ($true/$false), Type (a .NET type such as [int]), AllowedValues
+        (an array) and Default. Missing properties with a Default are added to -Config.
+        Returns $true when the configuration is valid; otherwise logs each problem at ERROR
+        level and returns $false.
+
+    .PARAMETER Config
+        The configuration object to check. Defaults are added to it.
+
+    .PARAMETER Schema
+        Hashtable describing the expected properties.
+
+    .EXAMPLE
+        $schema = @{
+            Port = @{ Mandatory = $true; Type = [int] }
+            Mode = @{ AllowedValues = 'Audit', 'Enforce'; Default = 'Audit' }
+        }
+        Test-CCFConfigSchema -Config ([pscustomobject]@{ Port = 8080 }) -Schema $schema
+
+        Returns $true and adds Mode = Audit to the object.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
     param(
         [Parameter(Mandatory = $true)]
         [PSCustomObject]$Config,
-        
+
         [Parameter(Mandatory = $true)]
         [hashtable]$Schema
     )
-    
-    $errors = New-Object System.Collections.Generic.List[string]
-    
+
+    $errors = [System.Collections.Generic.List[string]]::new()
+
     foreach ($key in $Schema.Keys) {
         $rule = $Schema[$key]
         $val = $Config.$key
-        
-        # 1. Check Mandatory
+
         if ($rule.Mandatory -and ($null -eq $val)) {
             $errors.Add("Campo obligatorio faltante: $key")
             continue
         }
 
         if ($null -eq $val) {
-            # Apply Default if available
             if ($null -ne $rule.Default) {
                 $Config | Add-Member -NotePropertyName $key -NotePropertyValue $rule.Default -Force
-                Log-Debug "Aplicado valor por defecto para $($key): $($rule.Default)"
+                Write-CCFLogDebug "Aplicado valor por defecto para $($key): $($rule.Default)"
             }
             continue
         }
-        
-        # 2. Check Type
-        if ($null -ne $rule.Type) {
-            if (-not ($val -is $rule.Type)) {
-                $errors.Add("Tipo incorrecto para $key. Esperado: $($rule.Type.Name), Obtenido: $($val.GetType().Name)")
-            }
+
+        if ($null -ne $rule.Type -and -not ($val -is $rule.Type)) {
+            $errors.Add("Tipo incorrecto para $key. Esperado: $($rule.Type.Name), Obtenido: $($val.GetType().Name)")
         }
 
-        # 3. Check Allowed Values
-        if ($null -ne $rule.AllowedValues -and ($rule.AllowedValues -is [array])) {
-            if ($rule.AllowedValues -notcontains $val) {
-                $errors.Add("Valor '$val' no permitido para $key. Opciones: $($rule.AllowedValues -join ', ')")
-            }
+        if ($null -ne $rule.AllowedValues -and @($rule.AllowedValues) -notcontains $val) {
+            $errors.Add("Valor '$val' no permitido para $key. Opciones: $(@($rule.AllowedValues) -join ', ')")
         }
     }
-    
+
     if ($errors.Count -gt 0) {
-        foreach ($err in $errors) { Log-Error "Validación de Config: $err" }
+        foreach ($err in $errors) { Write-CCFLogError "Validación de Config: $err" }
         return $false
     }
     return $true
 }
 
-# --- Alias de Retrocompatibilidad ---
+# Name from earlier versions, kept so existing scripts keep working.
 New-Alias -Name Clear-CCFConfigCache -Value Remove-CCFConfigCache
-

@@ -1,103 +1,72 @@
 @{
-    # Script module or binary module file associated with this manifest.
-    RootModule        = 'ArgosCCF.psm1'
-
-    # Version number of this module.
-    ModuleVersion     = '1.4.0'
-
-    # ID used to uniquely identify this module
-    GUID              = 'a4ce1d7d-c89a-46eb-9a85-5edccd5dab32'
-
-    # Author of this module
-    Author            = 'David Prieto'
-
-    # Company or vendor of this module
-    CompanyName       = 'Open Source'
-
-    # Copyright statement for this module
-    Copyright         = '(c) 2026 David Prieto. Licensed under the MIT License.'
-
-    # Description of the functionality provided by this module
-    Description       = 'ArgosCCF (formerly CCF) is a professional PowerShell framework for secure configuration, logging, plugin management, and parallel execution. Designed for high-integrity automation and security hardening.'
-
-    # Minimum version of the Windows PowerShell engine required by this module
-    PowerShellVersion = '5.1'
-
-    # Supported PSEditions
+    RootModule           = 'ArgosCCF.psm1'
+    ModuleVersion        = '1.4.0'
     CompatiblePSEditions = @('Desktop', 'Core')
+    GUID                 = 'a4ce1d7d-c89a-46eb-9a85-5edccd5dab32'
+    Author               = 'David Prieto'
+    CompanyName          = 'David Prieto'
+    Copyright            = '(c) 2026 David Prieto. Licensed under the MIT License.'
+    Description          = 'Building blocks for PowerShell automation scripts: logging with secret redaction, security and audit records and log rotation; layered JSON configuration; plugins with signature checks and an optional restricted runspace; and parallel execution with retries. Windows PowerShell 5.1 and PowerShell 7+.'
+    PowerShellVersion    = '5.1'
 
-    # Functions to export from this module, for best performance, do not use wildcards
-    FunctionsToExport = @(
-        'Get-CCFPath',
-        'Initialize-CCFEnvironment',
-        'Set-CCFLogLevel',
-        'Register-CCFLogProvider',
-        'Register-CCFSIEMProvider',
-        'Initialize-CCFLogger',
-        'Write-CCFLog',
-        'Write-CCFLogInfo',
-        'Write-CCFLogSuccess',
-        'Write-CCFLogWarn',
-        'Write-CCFLogError',
-        'Write-CCFLogCritical',
-        'Write-CCFLogDebug',
-        'Write-CCFLogHeader',
-        'Write-CCFSecurityRecord',
-        'Write-CCFAuditRecord',
-        'Write-CCFErrorRecord',
-        'Remove-CCFOldLog',
-        'Protect-CCFSensitiveData',
-        'Test-CCFEntropyContent',
-        'Test-CCFHealth',
-        'Submit-CCFHeartbeat',
-        'Get-CCFConfig',
-        'Set-CCFUserConfig',
-        'Merge-CCFConfig',
-        'Remove-CCFConfigCache',
-        'Test-CCFConfigSchema',
-        'Get-CCFPlugins',
-        'Invoke-CCFPlugin',
-        'Confirm-CCFPluginSignature',
+    # Keep in sync with Export-ModuleMember in ArgosCCF.psm1 (tests/QA checks it).
+    FunctionsToExport    = @(
+        'Get-CCFPath'
+        'Initialize-CCFEnvironment'
+
+        # Logging
+        'Set-CCFLogLevel'
+        'Register-CCFLogProvider'
+        'Register-CCFSIEMProvider'
+        'Initialize-CCFLogger'
+        'Write-CCFLog'
+        'Write-CCFLogInfo'
+        'Write-CCFLogSuccess'
+        'Write-CCFLogWarn'
+        'Write-CCFLogError'
+        'Write-CCFLogCritical'
+        'Write-CCFLogDebug'
+        'Write-CCFLogHeader'
+        'Write-CCFSecurityRecord'
+        'Write-CCFAuditRecord'
+        'Write-CCFErrorRecord'
+        'Remove-CCFOldLog'
+        'Protect-CCFSensitiveData'
+        'Test-CCFEntropyContent'
+        'Test-CCFHealth'
+        'Submit-CCFHeartbeat'
+
+        # Configuration
+        'Get-CCFConfig'
+        'Set-CCFUserConfig'
+        'Merge-CCFConfig'
+        'Remove-CCFConfigCache'
+        'Test-CCFConfigSchema'
+
+        # Plugins
+        'Get-CCFPlugin'
+        'Invoke-CCFPlugin'
+        'Confirm-CCFPluginSignature'
+
+        # Execution
         'Invoke-CCFParallel'
     )
-
-    # Cmdlets to export from this module
-    CmdletsToExport   = @()
-
-    # Variables to export from this module
-    VariablesToExport = @()
-
-    # Aliases to export from this module
-    AliasesToExport   = @(
+    CmdletsToExport      = @()
+    VariablesToExport    = @()
+    # Names from earlier versions, kept so existing scripts keep working.
+    AliasesToExport      = @(
         'Log-Info', 'Log-Success', 'Log-Warn', 'Log-Error', 'Log-Critical', 'Log-Debug', 'Log-Header',
         'Log-Attack', 'Log-Audit', 'Init-CCFLogger', 'Catch-CCFError', 'Redact-CCFSensitiveData',
-        'Test-CCFHighEntropy', 'Remove-OldCCFLogs', 'Clear-CCFConfigCache', 'Test-CCFPluginSignature'
+        'Test-CCFHighEntropy', 'Remove-OldCCFLogs', 'Clear-CCFConfigCache', 'Test-CCFPluginSignature',
+        'Get-CCFPlugins'
     )
 
-    # Private data to pass to the module specified in RootModule/ModuleToProcess
-    PrivateData       = @{
+    PrivateData          = @{
         PSData = @{
-            # Tags applied to this module. These help with module discovery in online galleries.
-            Tags         = @('Security', 'Configuration', 'Logging', 'Plugins', 'Parallel', 'Framework', 'Hardening', 'ArgosCCF')
-
-            # A URL to the license for this module.
+            Tags         = @('Logging', 'Configuration', 'Plugins', 'Parallel', 'Runspace', 'Security', 'Audit', 'Redaction', 'Automation', 'Windows', 'Linux', 'MacOS', 'PSEdition_Desktop', 'PSEdition_Core')
             LicenseUri   = 'https://github.com/damdavidprieto/ArgosCCF/blob/main/LICENSE'
-
-            # A URL to the main website for this project.
             ProjectUri   = 'https://github.com/damdavidprieto/ArgosCCF'
-
-            # A URL to an icon representing this module.
-            # IconUri = ''
-
-            # ReleaseNotes of this module
-            ReleaseNotes = @'
-## 1.3.0
-- Rebranding to ArgosCCF
-- Security Hardening (L5)
-- Plugin Signature Verification
-- Parallel Execution Engine
-- Enhanced Logging & Forensics
-'@
+            ReleaseNotes = 'See https://github.com/damdavidprieto/ArgosCCF/blob/main/CHANGELOG.md'
         }
     }
 }
