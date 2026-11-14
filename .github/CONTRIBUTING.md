@@ -35,7 +35,17 @@ CI checks both, and PowerShell 7 on Linux and macOS too.
 
 ## Releasing
 
+The `Publish` workflow runs in the `psgallery` environment, which only accepts `v*` tags and holds
+three secrets:
+
+| Secret | Contents |
+|---|---|
+| `PSGALLERY_API_KEY` | A PowerShell Gallery API key scoped to this package only |
+| `CODE_SIGNING_PFX_BASE64` | The code signing certificate (.pfx), base64-encoded: `[Convert]::ToBase64String([IO.File]::ReadAllBytes('cert.pfx'))` |
+| `CODE_SIGNING_PFX_PASSWORD` | The password of that .pfx |
+
 1. Move the `Unreleased` entries in `CHANGELOG.md` under the new version and update `ModuleVersion`
    in the manifest.
-2. Push a tag `v<version>`. The `Publish` workflow checks that the tag matches the manifest, runs the
-   build, publishes `output/ArgosCCF` to the PowerShell Gallery and creates the GitHub release.
+2. Push a tag `v<version>`. The workflow checks that the tag matches the manifest, runs the build,
+   signs every `.ps1`, `.psm1` and `.psd1` (and fails unless every signature is valid), publishes
+   `output/ArgosCCF` to the PowerShell Gallery and creates the GitHub release.
