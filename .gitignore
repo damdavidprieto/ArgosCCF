@@ -35,3 +35,7 @@ desktop.ini
 
 # Build output (see build.ps1)
 output/
+
+# Output captured from demos and test runs
+Examples/*.txt
+Tests/*.txt
