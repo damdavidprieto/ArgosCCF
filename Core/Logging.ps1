@@ -8,6 +8,9 @@ $script:LogProvider = $null
 $script:SIEMProvider = $null
 $script:CurrentLogFile = $null
 $script:MaxLogSizeMB = 10
+$script:MaxLogRolling = 5
+$script:CCFMutexNames = [System.Collections.Concurrent.ConcurrentDictionary[string, string]]::new()
+$script:CCFLogEncoding = [System.Text.UTF8Encoding]::new($false)
 $script:LogLevels = @{ 'DEBUG' = 0; 'INFO' = 1; 'WARN' = 2; 'SUCCESS' = 2; 'ERROR' = 3; 'CRITICAL' = 4 }
 $script:CurrentLogLevel = 1
 $script:JsonOutput = $false
@@ -46,6 +49,92 @@ function Test-CCFLogName {
     param([AllowEmptyString()][string]$Name)
 
     return ($Name -match '^[A-Za-z0-9][A-Za-z0-9._-]*$' -and $Name -notmatch '\.\.')
+}
+
+function Get-CCFFileMutexName {
+    <#
+    .SYNOPSIS
+        Name of the mutex that serializes writes to one log file, the same in every runspace and process.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $name = $null
+    if ($script:CCFMutexNames.TryGetValue($Path, [ref]$name)) { return $name }
+
+    $key = [System.IO.Path]::GetFullPath($Path)
+    if (-not ($IsLinux -or $IsMacOS)) { $key = $key.ToUpperInvariant() }
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { $hash = -join ($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($key))[0..15] | ForEach-Object { $_.ToString('x2') }) }
+    finally { $sha.Dispose() }
+
+    $name = "ArgosCCF-$hash"
+    $null = $script:CCFMutexNames.TryAdd($Path, $name)
+    return $name
+}
+
+function Invoke-CCFLogRotation {
+    <#
+    .SYNOPSIS
+        Renames a log file to .1 (shifting older copies, keeping MaxRolling of them) when it is larger than MaxMB.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [int]$MaxMB = 10,
+        [int]$MaxRolling = 5
+    )
+
+    $info = [System.IO.FileInfo]::new($Path)
+    if (-not $info.Exists -or $info.Length -le ([long]$MaxMB * 1MB)) { return }
+
+    for ($i = $MaxRolling - 1; $i -ge 1; $i--) {
+        $old = "$Path.$i"
+        if (Test-Path -LiteralPath $old) { Move-Item -LiteralPath $old -Destination "$Path.$($i + 1)" -Force }
+    }
+    Move-Item -LiteralPath $Path -Destination "$Path.1" -Force
+}
+
+function Add-CCFLogLine {
+    <#
+    .SYNOPSIS
+        Appends one line to a log file, rotating it first if needed, with the file locked for every runspace and process.
+    .DESCRIPTION
+        A named mutex derived from the file path makes writers wait for each other, so concurrent
+        writes from runspaces or other processes are neither lost nor interleaved. If the lock is
+        not obtained within 5 seconds the line is written anyway: logging never blocks a script.
+        A write that fails because the file is briefly in use (antivirus, backup) is retried.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Line
+    )
+
+    $mutex = [System.Threading.Mutex]::new($false, (Get-CCFFileMutexName -Path $Path))
+    $locked = $false
+    try {
+        try { $locked = $mutex.WaitOne(5000) }
+        catch [System.Threading.AbandonedMutexException] { $locked = $true }
+        if (-not $locked) { Write-Verbose "No lock on $Path after 5 seconds; writing anyway." }
+
+        Invoke-CCFLogRotation -Path $Path -MaxMB $script:MaxLogSizeMB -MaxRolling $script:MaxLogRolling
+        for ($attempt = 1; $attempt -le 5; $attempt++) {
+            try {
+                [System.IO.File]::AppendAllText($Path, $Line + [Environment]::NewLine, $script:CCFLogEncoding)
+                return
+            }
+            catch [System.IO.IOException] {
+                if ($attempt -eq 5) { throw }
+                Start-Sleep -Milliseconds (20 * $attempt)
+            }
+        }
+    }
+    finally {
+        if ($locked) { $mutex.ReleaseMutex() }
+        $mutex.Dispose()
+    }
 }
 
 # --- Level and providers ---
@@ -234,8 +323,9 @@ function Initialize-CCFLogger {
         they also go to the given file in the Logs folder: the folder given with -Path, or
         Logs in the per-user data folder (see Get-CCFPath -Target Logs). Logs are never written
         into the folder the module is installed in, so updating the module keeps them.
-        If the file is larger than -MaxMB, it is renamed to .1 (older copies shift to .2, .3
-        and so on, keeping -MaxRolling files) and a new file is started.
+        Before every write, a file larger than -MaxMB is renamed to .1 (older copies shift to
+        .2, .3 and so on, keeping -MaxRolling files) and a new file is started; this applies to
+        the session file and to the category files, and also when the logger starts.
         Messages with another category (Security, Audit, Errors...) always go to their own
         CCF_<Category>.log file in the same folder.
 
@@ -307,18 +397,10 @@ function Initialize-CCFLogger {
 
     $script:CurrentLogFile = Join-Path $logDir $FileName
     $script:MaxLogSizeMB = $MaxMB
+    $script:MaxLogRolling = $MaxRolling
 
-    if (Test-Path -LiteralPath $script:CurrentLogFile) {
-        $size = (Get-Item -LiteralPath $script:CurrentLogFile).Length / 1MB
-        if ($size -gt $script:MaxLogSizeMB) {
-            for ($i = $MaxRolling - 1; $i -ge 1; $i--) {
-                $old = "$($script:CurrentLogFile).$i"
-                $new = "$($script:CurrentLogFile).$($i + 1)"
-                if (Test-Path -LiteralPath $old) { Move-Item -LiteralPath $old -Destination $new -Force }
-            }
-            Move-Item -LiteralPath $script:CurrentLogFile -Destination "$($script:CurrentLogFile).1" -Force
-        }
-    }
+    # The size is also checked before every write, so long sessions rotate too.
+    Invoke-CCFLogRotation -Path $script:CurrentLogFile -MaxMB $MaxMB -MaxRolling $MaxRolling
 }
 
 function Write-CCFLog {
@@ -335,6 +417,9 @@ function Write-CCFLog {
         other categories go to CCF_<Category>.log in the Logs folder.
         Line breaks in the message are written as "\n" and control characters are removed, so
         a message cannot add fake entries to the log or restyle the console.
+        Files are written as UTF-8 without BOM. Each write locks the file with a named mutex,
+        so runspaces and processes (of the same user session) that log to the same file at the
+        same time neither lose nor interleave entries.
 
     .PARAMETER Message
         The message to log.
@@ -446,7 +531,7 @@ function Write-CCFLog {
         try {
             $parent = Split-Path $targetFile -Parent
             if ($parent -and -not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
-            $outMsg | Out-File -LiteralPath $targetFile -Append -Encoding UTF8 -ErrorAction Stop
+            Add-CCFLogLine -Path $targetFile -Line $outMsg
         }
         catch {
             # Never log a failure to log: it would recurse.

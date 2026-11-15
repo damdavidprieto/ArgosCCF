@@ -79,6 +79,9 @@ detected. Do not log secrets on purpose, and register the ones your script handl
   characters are removed, so a message cannot add fake entries to a log file.
 - **No terminal escape sequences.** ANSI escape sequences are removed, so a message cannot recolor
   or hide console output.
+- **No lost entries.** Each write locks the file with a named mutex, so runspaces and processes of the
+  same user session that log to the same file at the same time neither lose nor interleave entries.
+  Files are rotated by size before every write, so a long session cannot fill the disk with one file.
 - **Log files stay in the Logs folder.** `-Category` and `Initialize-CCFLogger -FileName` accept only
   letters, digits, `.`, `-` and `_`. The `Logging.DefaultPath` override in `ccf_core` is used only
   when, after resolving `..`, it is inside the data folder, so a configuration file cannot send logs

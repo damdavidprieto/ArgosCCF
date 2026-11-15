@@ -89,6 +89,13 @@ configuration, plugin and parallel execution commands keep working but are depre
   They are now kept in a per-user data folder (`ArgosCCF` under `%LOCALAPPDATA%`, `$XDG_DATA_HOME` or
   `~/.local/share`, or `$env:CCF_DATA_PATH`) and ArgosCCF no longer writes into its own folder. User
   settings saved next to the module by earlier versions are still read.
+- **Concurrent writes lost entries**: runspaces or processes logging to the same file at the same time
+  collided on the file and the failed writes were dropped silently (in a test, 428 of 2,000 entries
+  from 8 runspaces and 391 of 750 from 3 processes arrived). Each write now locks the file with a
+  named mutex and retries briefly when the file is in use; the same test keeps every entry.
+- **Rotation only at start**: `-MaxMB` was checked only when `Initialize-CCFLogger` ran, so a long
+  session grew past it, and category files (`CCF_Security.log`, `CCF_Audit.log`...) never rotated.
+  The size is now checked before every write, for every file.
 - **One-item arrays** in hashtables and objects lost their array shape when redacted.
 - **False positives**: GUIDs, Windows SIDs, hexadecimal hashes and certificate thumbprints were
   redacted as random-looking secrets, which removed useful values from audit logs. They are kept now,
@@ -98,6 +105,8 @@ configuration, plugin and parallel execution commands keep working but are depre
 
 ### Changed
 - `Initialize-CCFLogger -JsonOutput` writes one JSON object per line.
+- Log files are written as UTF-8 without BOM on every PowerShell version (Windows PowerShell 5.1
+  added a BOM to new files).
 - The level shortcuts (`Write-CCFLogInfo`, ...) have named `-Message` and `-Data` parameters; the
   positional form still works.
 - Paths use forward slashes, so configuration loading works on Linux and macOS.

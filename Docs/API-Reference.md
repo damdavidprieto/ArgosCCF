@@ -277,8 +277,9 @@ Until this runs, Write-CCFLog writes System messages to the console only. Afterw
 they also go to the given file in the Logs folder: the folder given with -Path, or
 Logs in the per-user data folder (see Get-CCFPath -Target Logs). Logs are never written
 into the folder the module is installed in, so updating the module keeps them.
-If the file is larger than -MaxMB, it is renamed to .1 (older copies shift to .2, .3
-and so on, keeping -MaxRolling files) and a new file is started.
+Before every write, a file larger than -MaxMB is renamed to .1 (older copies shift to
+.2, .3 and so on, keeping -MaxRolling files) and a new file is started; this applies to
+the session file and to the category files, and also when the logger starts.
 Messages with another category (Security, Audit, Errors...) always go to their own
 CCF_<Category>.log file in the same folder.
 
@@ -1030,6 +1031,9 @@ log file. Entries in the System category go to the file set with Initialize-CCFL
 other categories go to CCF_<Category>.log in the Logs folder.
 Line breaks in the message are written as "\n" and control characters are removed, so
 a message cannot add fake entries to the log or restyle the console.
+Files are written as UTF-8 without BOM. Each write locks the file with a named mutex,
+so runspaces and processes (of the same user session) that log to the same file at the
+same time neither lose nor interleave entries.
 
 | Parameter | Description |
 |---|---|
