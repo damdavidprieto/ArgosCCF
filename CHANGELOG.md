@@ -27,6 +27,15 @@ configuration, plugin and parallel execution commands keep working but are depre
 - `Protect-CCFSensitiveData` accepts pipeline input and arrays, so it can sit in front of any other
   logger (for example `Write-PSFMessage`).
 - `Initialize-CCFLogger -Path`: the folder for this session's logs, such as the script's own folder.
+- **Background writing** (optional): with `Initialize-CCFLogger -Background`, log files are written by a
+  background worker, in order and in batches, with the same lock and rotation. `Write-CCFLog` takes
+  about half the time (5.4 to 2.5 ms per entry on PowerShell 7, 5.3 to 2.4 ms on 5.1). ERROR and
+  CRITICAL entries, Security and Audit records and `-NoBuffer` entries still wait until they are on
+  disk; the queue (10,000 entries) makes callers wait when full instead of dropping entries; and it
+  is written out when PowerShell exits, when the module is removed and on `Stop-CCFLogWriter`.
+  `Get-CCFLogWriter` reports queued, written and failed entries, `Wait-CCFLogWriter` waits for the
+  queue, and `Test-CCFHealth` checks the writer. `Write-CCFLog -NoBuffer` had no effect and now makes
+  that entry wait.
 - `Get-CCFPath -Target Data` and `-Target UserConfigs`.
 
 ### Deprecated
@@ -70,7 +79,7 @@ configuration, plugin and parallel execution commands keep working but are depre
 - **Exports**: the Core files were imported as separate global modules (`Logging`, `Configuration`,
   `Plugins`, `Execution`), so `Get-Command -Module ArgosCCF` listed only 2 functions and those generic
   module names could clash with other modules. They are now loaded into ArgosCCF's own scope and the
-  module exports its functions (37 in this version) and 17 aliases.
+  module exports its functions (40 in this version) and 17 aliases.
 - **Missing functions**: `Write-CCFSecurityRecord`, `Write-CCFAuditRecord` and the aliases `Log-Attack`,
   `Log-Audit`, `Test-CCFHighEntropy` were documented and listed in the manifest but did not exist.
   Added, together with `Remove-CCFOldLog` (alias `Remove-OldCCFLogs`). `Merge-CCFConfig`,

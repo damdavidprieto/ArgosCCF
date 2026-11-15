@@ -66,7 +66,7 @@ function Get-CCFFileMutexName {
     $key = [System.IO.Path]::GetFullPath($Path)
     if (-not ($IsLinux -or $IsMacOS)) { $key = $key.ToUpperInvariant() }
     $sha = [System.Security.Cryptography.SHA256]::Create()
-    try { $hash = -join ($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($key))[0..15] | ForEach-Object { $_.ToString('x2') }) }
+    try { $hash = [System.BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($key)), 0, 16).Replace('-', '').ToLowerInvariant() }
     finally { $sha.Dispose() }
 
     $name = "ArgosCCF-$hash"
@@ -78,6 +78,8 @@ function Invoke-CCFLogRotation {
     <#
     .SYNOPSIS
         Renames a log file to .1 (shifting older copies, keeping MaxRolling of them) when it is larger than MaxMB.
+    .DESCRIPTION
+        Uses .NET calls only, so the background writer can run it without loading cmdlets.
     #>
     [CmdletBinding()]
     param(
@@ -89,27 +91,33 @@ function Invoke-CCFLogRotation {
     $info = [System.IO.FileInfo]::new($Path)
     if (-not $info.Exists -or $info.Length -le ([long]$MaxMB * 1MB)) { return }
 
-    for ($i = $MaxRolling - 1; $i -ge 1; $i--) {
-        $old = "$Path.$i"
-        if (Test-Path -LiteralPath $old) { Move-Item -LiteralPath $old -Destination "$Path.$($i + 1)" -Force }
+    for ($i = $MaxRolling - 1; $i -ge 0; $i--) {
+        $old = if ($i -eq 0) { $Path } else { "$Path.$i" }
+        $new = "$Path.$($i + 1)"
+        if (-not [System.IO.File]::Exists($old)) { continue }
+        if ([System.IO.File]::Exists($new)) { [System.IO.File]::Delete($new) }
+        [System.IO.File]::Move($old, $new)
     }
-    Move-Item -LiteralPath $Path -Destination "$Path.1" -Force
 }
 
-function Add-CCFLogLine {
+function Add-CCFLogText {
     <#
     .SYNOPSIS
-        Appends one line to a log file, rotating it first if needed, with the file locked for every runspace and process.
+        Appends text (one or more complete lines) to a log file, rotating it first if needed, with the file locked for every runspace and process.
     .DESCRIPTION
         A named mutex derived from the file path makes writers wait for each other, so concurrent
         writes from runspaces or other processes are neither lost nor interleaved. If the lock is
-        not obtained within 5 seconds the line is written anyway: logging never blocks a script.
-        A write that fails because the file is briefly in use (antivirus, backup) is retried.
+        not obtained within 5 seconds the text is written anyway: logging never blocks a script.
+        A missing folder is created. A write that fails because the file is briefly in use
+        (antivirus, backup) is retried. Uses .NET calls only, so the background writer can run
+        it without loading cmdlets.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Line
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text,
+        [int]$MaxMB = 10,
+        [int]$MaxRolling = 5
     )
 
     $mutex = [System.Threading.Mutex]::new($false, (Get-CCFFileMutexName -Path $Path))
@@ -119,21 +127,297 @@ function Add-CCFLogLine {
         catch [System.Threading.AbandonedMutexException] { $locked = $true }
         if (-not $locked) { Write-Verbose "No lock on $Path after 5 seconds; writing anyway." }
 
-        Invoke-CCFLogRotation -Path $Path -MaxMB $script:MaxLogSizeMB -MaxRolling $script:MaxLogRolling
+        Invoke-CCFLogRotation -Path $Path -MaxMB $MaxMB -MaxRolling $MaxRolling
         for ($attempt = 1; $attempt -le 5; $attempt++) {
             try {
-                [System.IO.File]::AppendAllText($Path, $Line + [Environment]::NewLine, $script:CCFLogEncoding)
+                [System.IO.File]::AppendAllText($Path, $Text, $script:CCFLogEncoding)
                 return
+            }
+            catch [System.IO.DirectoryNotFoundException] {
+                if ($attempt -eq 5) { throw }
+                $null = [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($Path))
             }
             catch [System.IO.IOException] {
                 if ($attempt -eq 5) { throw }
-                Start-Sleep -Milliseconds (20 * $attempt)
+                [System.Threading.Thread]::Sleep(20 * $attempt)
             }
         }
     }
     finally {
         if ($locked) { $mutex.ReleaseMutex() }
         $mutex.Dispose()
+    }
+}
+
+# --- Background writer ---
+#
+# With Initialize-CCFLogger -Background, Write-CCFLog puts each file line in a bounded queue and
+# returns; one worker runspace per module instance takes the lines in order and appends them in
+# batches (one lock and one write per file per batch). The worker runs copies of the three file
+# helpers above, so it writes with the same lock, rotation and retries as direct writes.
+# A wait marker (a ManualResetEventSlim) put in the queue is set once every line before it has
+# been written; Wait-CCFLogWriter and the entries that must reach the disk use it.
+
+$script:CCFWriter = $null
+$script:CCFWriterCapacity = 10000
+
+$script:CCFWriterScript = {
+    param($Queue, $Status)
+    $batch = [System.Collections.Generic.List[object]]::new()
+    while ($true) {
+        $item = $null
+        try {
+            if (-not $Queue.TryTake([ref]$item, 250)) {
+                if ($Queue.IsCompleted) { break }
+                continue
+            }
+        }
+        catch [System.ObjectDisposedException] { break }
+        catch [System.InvalidOperationException] { break }
+
+        $batch.Clear()
+        $batch.Add($item)
+        while ($batch.Count -lt 1000 -and $Queue.TryTake([ref]$item)) { $batch.Add($item) }
+
+        $i = 0
+        while ($i -lt $batch.Count) {
+            $first = $batch[$i]
+            if ($first -is [System.Threading.ManualResetEventSlim]) {
+                try { $first.Set() } catch { $null = $_ }
+                $i++
+                continue
+            }
+            # Consecutive lines for the same file are written together.
+            $text = [System.Text.StringBuilder]::new()
+            $count = 0
+            while ($i -lt $batch.Count -and $batch[$i] -isnot [System.Threading.ManualResetEventSlim] -and $batch[$i][0] -ceq $first[0]) {
+                $null = $text.Append($batch[$i][1])
+                $count++
+                $i++
+            }
+            try {
+                Add-CCFLogText -Path $first[0] -Text $text.ToString() -MaxMB $first[2] -MaxRolling $first[3]
+                $Status.Written += $count
+            }
+            catch {
+                $Status.Failed += $count
+                $Status.LastError = "$($first[0]): $($_.Exception.Message)"
+            }
+        }
+    }
+}
+
+function Initialize-CCFLogWriter {
+    <#
+    .SYNOPSIS
+        Starts the background writer of this module instance, if it is not running.
+    #>
+    [CmdletBinding()]
+    param()
+
+    if ($null -ne $script:CCFWriter) { return }
+
+    $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault2()
+    foreach ($name in 'Get-CCFFileMutexName', 'Invoke-CCFLogRotation', 'Add-CCFLogText') {
+        $definition = (Get-Item -LiteralPath "function:$name").ScriptBlock.ToString()
+        $iss.Commands.Add([System.Management.Automation.Runspaces.SessionStateFunctionEntry]::new($name, $definition))
+    }
+    $iss.Variables.Add([System.Management.Automation.Runspaces.SessionStateVariableEntry]::new('CCFMutexNames', $script:CCFMutexNames, ''))
+    $iss.Variables.Add([System.Management.Automation.Runspaces.SessionStateVariableEntry]::new('CCFLogEncoding', $script:CCFLogEncoding, ''))
+
+    $queue = [System.Collections.Concurrent.BlockingCollection[object]]::new($script:CCFWriterCapacity)
+    $status = [hashtable]::Synchronized(@{ Written = [long]0; Failed = [long]0; LastError = $null })
+    $runspace = [runspacefactory]::CreateRunspace($iss)
+    $runspace.Open()
+    $ps = [powershell]::Create()
+    $ps.Runspace = $runspace
+    $null = $ps.AddScript($script:CCFWriterScript.ToString()).AddArgument($queue).AddArgument($status)
+    $handle = $ps.BeginInvoke()
+
+    # Write what is still queued when PowerShell exits normally.
+    $exitJob = Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action { Close-CCFLogWriter -TimeoutSeconds 10 -Exiting }
+
+    $script:CCFWriter = @{
+        Queue = $queue; Status = $status; Runspace = $runspace; PowerShell = $ps; Handle = $handle; ExitJob = $exitJob
+    }
+}
+
+function Add-CCFQueuedLogText {
+    <#
+    .SYNOPSIS
+        Puts text for a log file in the background writer's queue; false when it cannot (the caller then writes it directly).
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text
+    )
+
+    $writer = $script:CCFWriter
+    if ($null -eq $writer) { return $false }
+    if ($writer.PowerShell.InvocationStateInfo.State -ne 'Running') {
+        Write-Warning 'ArgosCCF: the background log writer stopped; log entries are written directly from now on.'
+        Stop-CCFLogWriter -TimeoutSeconds 0 -WarningAction SilentlyContinue
+        return $false
+    }
+    try {
+        # A full queue makes the caller wait (no entry is dropped); after 5 seconds it writes directly.
+        return $writer.Queue.TryAdd(@($Path, $Text, $script:MaxLogSizeMB, $script:MaxLogRolling), 5000)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-CCFLogWriter {
+    <#
+    .SYNOPSIS
+        Shows whether log files are written in the background and how many entries are waiting, written or failed.
+
+    .DESCRIPTION
+        Returns an object with Mode ("Background" after Initialize-CCFLogger -Background,
+        otherwise "Direct"), Running (whether the background writer is working), Queued (file
+        entries waiting to be written), Written and Failed (entries the background writer
+        wrote or could not write since it started), LastError (the last write error, if any)
+        and Capacity (the size of the queue; when it is full, Write-CCFLog waits).
+
+    .EXAMPLE
+        Get-CCFLogWriter
+
+        Shows the state of the background writer.
+
+    .EXAMPLE
+        if ((Get-CCFLogWriter).Failed) { Write-Warning (Get-CCFLogWriter).LastError }
+
+        Warns when some entries could not be written to disk.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+
+    $writer = $script:CCFWriter
+    if ($null -eq $writer) {
+        return [pscustomobject]@{ Mode = 'Direct'; Running = $false; Queued = 0; Written = 0; Failed = 0; LastError = $null; Capacity = $script:CCFWriterCapacity }
+    }
+    return [pscustomobject]@{
+        Mode      = 'Background'
+        Running   = ($writer.PowerShell.InvocationStateInfo.State -eq 'Running')
+        Queued    = $writer.Queue.Count
+        Written   = $writer.Status.Written
+        Failed    = $writer.Status.Failed
+        LastError = $writer.Status.LastError
+        Capacity  = $script:CCFWriterCapacity
+    }
+}
+
+function Wait-CCFLogWriter {
+    <#
+    .SYNOPSIS
+        Waits until every log entry queued so far has been written to disk.
+
+    .DESCRIPTION
+        With Initialize-CCFLogger -Background, Write-CCFLog returns before the entry is in the
+        file. Wait-CCFLogWriter blocks until every entry logged before the call is written,
+        for example before reading or copying the log file, or before a step that may stop
+        the process. The background writer keeps running. Without a background writer it
+        returns at once. Write-CCFLog already waits by itself for ERROR and CRITICAL entries,
+        Security and Audit records and entries logged with -NoBuffer.
+
+    .PARAMETER TimeoutSeconds
+        Longest wait. A warning is written when the entries are not written in time. Defaults to 30.
+
+    .EXAMPLE
+        Write-CCFLogInfo 'Report generated'; Wait-CCFLogWriter; Copy-Item (Get-CCFPath -Target Logs) \\server\logs -Recurse
+
+        Makes sure the entry is in the file before the logs are copied.
+    #>
+    [CmdletBinding()]
+    param(
+        [ValidateRange(0, 3600)]
+        [int]$TimeoutSeconds = 30
+    )
+
+    $writer = $script:CCFWriter
+    if ($null -eq $writer) { return }
+
+    $marker = [System.Threading.ManualResetEventSlim]::new($false)
+    $queued = $false
+    try { $queued = $writer.Queue.TryAdd($marker, $TimeoutSeconds * 1000) } catch { $queued = $false }
+    if (-not $queued -or -not $marker.Wait([TimeSpan]::FromSeconds($TimeoutSeconds))) {
+        Write-Warning "ArgosCCF: $($writer.Queue.Count) log entries were still waiting to be written after $TimeoutSeconds seconds."
+    }
+}
+
+function Stop-CCFLogWriter {
+    <#
+    .SYNOPSIS
+        Writes the queued log entries and stops the background writer; later entries are written directly.
+
+    .DESCRIPTION
+        Waits up to -TimeoutSeconds for the queued entries to be written, then stops the worker
+        and frees it. Write-CCFLog then writes each entry before returning, as without
+        -Background. It also runs by itself when PowerShell exits normally, when the module is
+        removed or imported again, and when Initialize-CCFLogger runs without -Background.
+        A warning is written when some entries could not be written.
+
+    .PARAMETER TimeoutSeconds
+        Longest wait for the queued entries. Entries still queued after it are lost, and a
+        warning says how many. Defaults to 30.
+
+    .EXAMPLE
+        Stop-CCFLogWriter
+
+        Writes what is queued and returns to direct writing.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Stops an in-memory worker of the current session; queued entries are written first.')]
+    [CmdletBinding()]
+    param(
+        [ValidateRange(0, 3600)]
+        [int]$TimeoutSeconds = 30
+    )
+
+    Close-CCFLogWriter -TimeoutSeconds $TimeoutSeconds
+}
+
+function Close-CCFLogWriter {
+    <#
+    .SYNOPSIS
+        Writes the queued entries and stops the background writer (for Stop-CCFLogWriter, the exit handler and OnRemove).
+    #>
+    [CmdletBinding()]
+    param(
+        [int]$TimeoutSeconds = 30,
+        [switch]$Exiting
+    )
+
+    $writer = $script:CCFWriter
+    if ($null -eq $writer) { return }
+    $script:CCFWriter = $null
+
+    try { $writer.Queue.CompleteAdding() } catch { $null = $_ }
+    $finished = $writer.Handle.AsyncWaitHandle.WaitOne([TimeSpan]::FromSeconds($TimeoutSeconds))
+    $lost = $writer.Queue.Count
+    if ($finished) {
+        try { $null = $writer.PowerShell.EndInvoke($writer.Handle) } catch { $null = $_ }
+    }
+    else {
+        $null = $writer.PowerShell.BeginStop($null, $null)
+    }
+    if ($lost -gt 0) { Write-Warning "ArgosCCF: $lost queued log entries were not written within $TimeoutSeconds seconds." }
+    if ($writer.Status.Failed -gt 0) { Write-Warning "ArgosCCF: $($writer.Status.Failed) log entries could not be written. Last error: $($writer.Status.LastError)" }
+
+    if ($finished) {
+        $writer.PowerShell.Dispose()
+        $writer.Runspace.Dispose()
+        $writer.Queue.Dispose()
+    }
+    # Called from the PowerShell.Exiting handler, PowerShell removes the subscription itself
+    # afterwards; removing it here makes the engine fail when it closes.
+    if ($writer.ExitJob -and -not $Exiting) {
+        Get-EventSubscriber -SourceIdentifier PowerShell.Exiting -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.Action -eq $writer.ExitJob } | Unregister-Event -Force -ErrorAction SilentlyContinue
+        Remove-Job -Job $writer.ExitJob -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -246,7 +530,8 @@ function Test-CCFHealth {
 
     .DESCRIPTION
         Returns an object with Timestamp, Status ("OK" or "DEGRADED") and Checks, one entry per
-        component (Logging, Configuration, Execution, Plugins) and one for the Logs folder.
+        component (Logging, Configuration, Execution, Plugins), one for the Logs folder and,
+        with background writing, one for the writer (running, with no failed writes).
         Status is DEGRADED when any check fails. Use it at the start of a script, or in a
         monitoring job, to fail early when the environment is not usable.
 
@@ -286,6 +571,13 @@ function Test-CCFHealth {
     $logsWritable = Test-CCFWritableDirectory -Path (Get-CCFPath -Target 'Logs')
     $report.Checks += @{ Target = 'LogsWritable'; Pass = $logsWritable }
     if (-not $logsWritable) { $report.Status = 'DEGRADED' }
+
+    $writer = Get-CCFLogWriter
+    if ($writer.Mode -eq 'Background') {
+        $writerOk = $writer.Running -and $writer.Failed -eq 0
+        $report.Checks += @{ Target = 'LogWriter'; Pass = $writerOk }
+        if (-not $writerOk) { $report.Status = 'DEGRADED' }
+    }
 
     return [PSCustomObject]$report
 }
@@ -347,6 +639,16 @@ function Initialize-CCFLogger {
     .PARAMETER JsonOutput
         Write each entry as one JSON object per line (including Data), instead of plain text.
 
+    .PARAMETER Background
+        Write log files from a background worker, so Write-CCFLog returns without waiting
+        for the disk. Entries keep their order and are written in batches with the same lock
+        and rotation. The queue holds 10,000 entries; when it is full, Write-CCFLog waits,
+        so no entry is dropped. ERROR and CRITICAL entries, Security and Audit records and
+        entries logged with -NoBuffer wait until they are in the file. The queue is written
+        out when PowerShell exits normally, when the module is removed, by Stop-CCFLogWriter
+        and when Initialize-CCFLogger runs again without -Background; entries still queued
+        when the process is killed are lost. See Get-CCFLogWriter and Wait-CCFLogWriter.
+
     .EXAMPLE
         Initialize-CCFLogger -FileName 'Backup.log' -MaxMB 20
 
@@ -361,6 +663,11 @@ function Initialize-CCFLogger {
         Initialize-CCFLogger -Path (Join-Path $PSScriptRoot 'logs') -FileName 'Deploy.log'
 
         Writes this script's logs, and its Security and Audit records, next to the script.
+
+    .EXAMPLE
+        Initialize-CCFLogger -FileName 'Import.log' -Background
+
+        Logs to Import.log from a background worker, for scripts that log many entries.
     #>
     [CmdletBinding()]
     param(
@@ -376,8 +683,13 @@ function Initialize-CCFLogger {
         [ValidateRange(1, 100)]
         [int]$MaxRolling = 5,
 
-        [switch]$JsonOutput
+        [switch]$JsonOutput,
+
+        [switch]$Background
     )
+
+    # Entries queued under the previous settings are written first.
+    if ($Background) { Wait-CCFLogWriter } else { Stop-CCFLogWriter }
 
     $script:JsonOutput = [bool]$JsonOutput
     $script:CCFSystemMeta = [ordered]@{
@@ -401,6 +713,8 @@ function Initialize-CCFLogger {
 
     # The size is also checked before every write, so long sessions rotate too.
     Invoke-CCFLogRotation -Path $script:CurrentLogFile -MaxMB $MaxMB -MaxRolling $MaxRolling
+
+    if ($Background) { Initialize-CCFLogWriter }
 }
 
 function Write-CCFLog {
@@ -420,6 +734,10 @@ function Write-CCFLog {
         Files are written as UTF-8 without BOM. Each write locks the file with a named mutex,
         so runspaces and processes (of the same user session) that log to the same file at the
         same time neither lose nor interleave entries.
+        After Initialize-CCFLogger -Background the file line is queued and written by a
+        background worker, so the call returns sooner; console output and providers are not
+        affected. ERROR and CRITICAL entries, Security and Audit records and entries logged
+        with -NoBuffer wait until they are in the file.
 
     .PARAMETER Message
         The message to log.
@@ -439,7 +757,9 @@ function Write-CCFLog {
         Defaults to System.
 
     .PARAMETER NoBuffer
-        Kept for compatibility; entries are always written immediately.
+        With background writing (Initialize-CCFLogger -Background), wait until this entry is
+        in the file before returning. Without background writing every entry is written
+        before Write-CCFLog returns, so it has no effect.
 
     .EXAMPLE
         Write-CCFLog -Message 'Backup started' -Level INFO
@@ -452,7 +772,6 @@ function Write-CCFLog {
         Logs a warning to CCF_Security.log with the user name as data.
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'The console is a log target; output must not mix with the pipeline.')]
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'NoBuffer', Justification = 'Kept so existing scripts that pass it keep working.')]
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true, Position = 0)]
@@ -528,14 +847,24 @@ function Write-CCFLog {
 
     if ($null -ne $targetFile) {
         $outMsg = if ($script:JsonOutput) { $logEntry | ConvertTo-Json -Depth 5 -Compress } else { $line }
-        try {
-            $parent = Split-Path $targetFile -Parent
-            if ($parent -and -not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
-            Add-CCFLogLine -Path $targetFile -Line $outMsg
+        $text = $outMsg + [Environment]::NewLine
+
+        # Background writing: queue the line; entries that must not be lost wait until they are on disk.
+        $queued = $false
+        if ($null -ne $script:CCFWriter) {
+            $queued = Add-CCFQueuedLogText -Path $targetFile -Text $text
+            if ($queued -and ($NoBuffer -or $script:LogLevels[$Level] -ge 3 -or $Category -eq 'Security' -or $Category -eq 'Audit')) {
+                Wait-CCFLogWriter -TimeoutSeconds 10
+            }
         }
-        catch {
-            # Never log a failure to log: it would recurse.
-            Write-Verbose "Could not write to ${targetFile}: $($_.Exception.Message)"
+        if (-not $queued) {
+            try {
+                Add-CCFLogText -Path $targetFile -Text $text -MaxMB $script:MaxLogSizeMB -MaxRolling $script:MaxLogRolling
+            }
+            catch {
+                # Never log a failure to log: it would recurse.
+                Write-Verbose "Could not write to ${targetFile}: $($_.Exception.Message)"
+            }
         }
     }
 }

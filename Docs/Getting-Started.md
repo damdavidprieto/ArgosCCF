@@ -30,6 +30,11 @@ go to the per-user data folder (`Get-CCFPath -Target Logs`), never into the modu
 the module keeps them. `Set-CCFLogLevel -Level DEBUG` also logs `Write-CCFLogDebug` messages, and
 `Initialize-CCFLogger -JsonOutput` writes one JSON object per line.
 
+Scripts that log many entries can add `-Background`: the files are then written by a background
+worker and each `Write-CCFLog` call takes about half the time. Errors, critical entries and security
+and audit records still wait until they are on disk, and the queue is written out when PowerShell
+exits. Call `Wait-CCFLogWriter` before reading or copying the log files.
+
 Security and audit events go to their own files in the same folder:
 
 ```powershell

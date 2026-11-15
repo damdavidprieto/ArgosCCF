@@ -12,7 +12,7 @@ ArgosCCF/
 ├── ArgosCCF.psm1        # Root module: environment initialisation, dot-sources Core/*
 ├── Core/                # Function files, loaded into the module's own scope
 │   ├── Redaction.ps1        # Secret redaction rules, registered secrets, Protect-CCFLogFile
-│   ├── Logging.ps1          # Structured logging, security/audit records, retention
+│   ├── Logging.ps1          # Structured logging, background writer, security/audit records, retention
 │   ├── Configuration.ps1    # Layered config (Factory / Preset / User), deep merge, cache (deprecated)
 │   ├── Execution.ps1        # Runspace-pool parallel execution (deprecated)
 │   └── Plugins.ps1          # Plugin discovery, signature check, sandboxing (deprecated)

@@ -6,6 +6,7 @@ Generated from the comment-based help by `Docs/New-ApiReference.ps1`. In PowerSh
 |---|---|
 | [`Confirm-CCFPluginSignature`](#confirm-ccfpluginsignature) | Checks whether a plugin file has a valid Authenticode signature. |
 | [`Get-CCFConfig`](#get-ccfconfig) | Loads a configuration by name, merging the factory, preset and user layers. |
+| [`Get-CCFLogWriter`](#get-ccflogwriter) | Shows whether log files are written in the background and how many entries are waiting, written or failed. |
 | [`Get-CCFPath`](#get-ccfpath) | Returns the full path of one of the ArgosCCF folders. |
 | [`Get-CCFPlugin`](#get-ccfplugin) | Lists the plugins in the Plugins folder (or another folder) with their metadata. |
 | [`Get-CCFRedactionPattern`](#get-ccfredactionpattern) | Lists the redaction rules, in the order they are applied. |
@@ -24,12 +25,14 @@ Generated from the comment-based help by `Docs/New-ApiReference.ps1`. In PowerSh
 | [`Remove-CCFOldLog`](#remove-ccfoldlog) | Deletes log files older than -DaysToKeep from the Logs folder, optionally zipping them first. |
 | [`Set-CCFLogLevel`](#set-ccfloglevel) | Sets the minimum level of the messages that are logged. |
 | [`Set-CCFUserConfig`](#set-ccfuserconfig) | Saves user settings for a configuration and clears its cached copies. |
+| [`Stop-CCFLogWriter`](#stop-ccflogwriter) | Writes the queued log entries and stops the background writer; later entries are written directly. |
 | [`Submit-CCFHeartbeat`](#submit-ccfheartbeat) | Records that the registered log provider is alive. |
 | [`Test-CCFConfigSchema`](#test-ccfconfigschema) | Validates a configuration object against a simple schema and fills in defaults. |
 | [`Test-CCFEntropyContent`](#test-ccfentropycontent) | Tests whether a string looks like a random secret, such as an API key or a token. |
 | [`Test-CCFHealth`](#test-ccfhealth) | Checks that the ArgosCCF components are loaded and that the Logs folder is writable. |
 | [`Unregister-CCFRedactionPattern`](#unregister-ccfredactionpattern) | Removes a pattern added with Register-CCFRedactionPattern. |
 | [`Unregister-CCFSecret`](#unregister-ccfsecret) | Removes values registered with Register-CCFSecret. |
+| [`Wait-CCFLogWriter`](#wait-ccflogwriter) | Waits until every log entry queued so far has been written to disk. |
 | [`Write-CCFAuditRecord`](#write-ccfauditrecord) | Records who did what, on which resource, in CCF_Audit.log. |
 | [`Write-CCFErrorRecord`](#write-ccferrorrecord) | Logs an error record from a catch block to CCF_Errors.log. |
 | [`Write-CCFLog`](#write-ccflog) | Writes a log entry to the console, the registered providers and the log file. |
@@ -137,6 +140,36 @@ Get-CCFConfig -ConfigName 'demo_app' -ActivePresets 'Production' -ForceRefresh
 ```
 
 Reloads demo_app with the Production preset applied.
+
+## Get-CCFLogWriter
+
+Shows whether log files are written in the background and how many entries are waiting, written or failed.
+
+```powershell
+Get-CCFLogWriter [<CommonParameters>]
+```
+
+Returns an object with Mode ("Background" after Initialize-CCFLogger -Background,
+otherwise "Direct"), Running (whether the background writer is working), Queued (file
+entries waiting to be written), Written and Failed (entries the background writer
+wrote or could not write since it started), LastError (the last write error, if any)
+and Capacity (the size of the queue; when it is full, Write-CCFLog waits).
+
+**Example 1**
+
+```powershell
+Get-CCFLogWriter
+```
+
+Shows the state of the background writer.
+
+**Example 2**
+
+```powershell
+if ((Get-CCFLogWriter).Failed) { Write-Warning (Get-CCFLogWriter).LastError }
+```
+
+Warns when some entries could not be written to disk.
 
 ## Get-CCFPath
 
@@ -270,7 +303,7 @@ Moves the logs and user settings of this session to D:\AppData\Backup.
 Sets the log file for the session and rotates it when it is too large.
 
 ```powershell
-Initialize-CCFLogger [[-FileName] <string>] [[-Path] <string>] [[-MaxMB] <int>] [[-MaxRolling] <int>] [-JsonOutput] [<CommonParameters>]
+Initialize-CCFLogger [[-FileName] <string>] [[-Path] <string>] [[-MaxMB] <int>] [[-MaxRolling] <int>] [-JsonOutput] [-Background] [<CommonParameters>]
 ```
 
 Until this runs, Write-CCFLog writes System messages to the console only. Afterwards
@@ -290,6 +323,7 @@ CCF_<Category>.log file in the same folder.
 | `-MaxMB` | Size in MB above which the file is rotated. Defaults to 10. |
 | `-MaxRolling` | Number of rotated files to keep. Defaults to 5. |
 | `-JsonOutput` | Write each entry as one JSON object per line (including Data), instead of plain text. |
+| `-Background` | Write log files from a background worker, so Write-CCFLog returns without waiting for the disk. Entries keep their order and are written in batches with the same lock and rotation. The queue holds 10,000 entries; when it is full, Write-CCFLog waits, so no entry is dropped. ERROR and CRITICAL entries, Security and Audit records and entries logged with -NoBuffer wait until they are in the file. The queue is written out when PowerShell exits normally, when the module is removed, by Stop-CCFLogWriter and when Initialize-CCFLogger runs again without -Background; entries still queued when the process is killed are lost. See Get-CCFLogWriter and Wait-CCFLogWriter. |
 
 **Example 1**
 
@@ -314,6 +348,14 @@ Initialize-CCFLogger -Path (Join-Path $PSScriptRoot 'logs') -FileName 'Deploy.lo
 ```
 
 Writes this script's logs, and its Security and Audit records, next to the script.
+
+**Example 4**
+
+```powershell
+Initialize-CCFLogger -FileName 'Import.log' -Background
+```
+
+Logs to Import.log from a background worker, for scripts that log many entries.
 
 ## Invoke-CCFParallel
 
@@ -794,6 +836,32 @@ Set-CCFUserConfig -ConfigName 'ccf_core' -ConfigObject ([pscustomobject]@{ Secur
 
 Requires signed plugins for this installation.
 
+## Stop-CCFLogWriter
+
+Writes the queued log entries and stops the background writer; later entries are written directly.
+
+```powershell
+Stop-CCFLogWriter [[-TimeoutSeconds] <int>] [<CommonParameters>]
+```
+
+Waits up to -TimeoutSeconds for the queued entries to be written, then stops the worker
+and frees it. Write-CCFLog then writes each entry before returning, as without
+-Background. It also runs by itself when PowerShell exits normally, when the module is
+removed or imported again, and when Initialize-CCFLogger runs without -Background.
+A warning is written when some entries could not be written.
+
+| Parameter | Description |
+|---|---|
+| `-TimeoutSeconds` | Longest wait for the queued entries. Entries still queued after it are lost, and a warning says how many. Defaults to 30. |
+
+**Example 1**
+
+```powershell
+Stop-CCFLogWriter
+```
+
+Writes what is queued and returns to direct writing.
+
 ## Submit-CCFHeartbeat
 
 Records that the registered log provider is alive.
@@ -893,7 +961,8 @@ Test-CCFHealth [<CommonParameters>]
 ```
 
 Returns an object with Timestamp, Status ("OK" or "DEGRADED") and Checks, one entry per
-component (Logging, Configuration, Execution, Plugins) and one for the Logs folder.
+component (Logging, Configuration, Execution, Plugins), one for the Logs folder and,
+with background writing, one for the writer (running, with no failed writes).
 Status is DEGRADED when any check fails. Use it at the start of a script, or in a
 monitoring job, to fail early when the environment is not usable.
 
@@ -961,6 +1030,33 @@ Unregister-CCFSecret -All
 ```
 
 Forgets every registered secret.
+
+## Wait-CCFLogWriter
+
+Waits until every log entry queued so far has been written to disk.
+
+```powershell
+Wait-CCFLogWriter [[-TimeoutSeconds] <int>] [<CommonParameters>]
+```
+
+With Initialize-CCFLogger -Background, Write-CCFLog returns before the entry is in the
+file. Wait-CCFLogWriter blocks until every entry logged before the call is written,
+for example before reading or copying the log file, or before a step that may stop
+the process. The background writer keeps running. Without a background writer it
+returns at once. Write-CCFLog already waits by itself for ERROR and CRITICAL entries,
+Security and Audit records and entries logged with -NoBuffer.
+
+| Parameter | Description |
+|---|---|
+| `-TimeoutSeconds` | Longest wait. A warning is written when the entries are not written in time. Defaults to 30. |
+
+**Example 1**
+
+```powershell
+Write-CCFLogInfo 'Report generated'; Wait-CCFLogWriter; Copy-Item (Get-CCFPath -Target Logs) \\server\logs -Recurse
+```
+
+Makes sure the entry is in the file before the logs are copied.
 
 ## Write-CCFAuditRecord
 
@@ -1034,6 +1130,10 @@ a message cannot add fake entries to the log or restyle the console.
 Files are written as UTF-8 without BOM. Each write locks the file with a named mutex,
 so runspaces and processes (of the same user session) that log to the same file at the
 same time neither lose nor interleave entries.
+After Initialize-CCFLogger -Background the file line is queued and written by a
+background worker, so the call returns sooner; console output and providers are not
+affected. ERROR and CRITICAL entries, Security and Audit records and entries logged
+with -NoBuffer wait until they are in the file.
 
 | Parameter | Description |
 |---|---|
@@ -1042,7 +1142,7 @@ same time neither lose nor interleave entries.
 | `-Color` | Console color for INFO messages when no provider is registered. Defaults to White. |
 | `-Data` | Optional structured data. It is redacted, passed to the providers and written to the file in JSON mode (Initialize-CCFLogger -JsonOutput). |
 | `-Category` | Log category, which also names the log file. Letters, digits, dot, dash and underscore. Defaults to System. |
-| `-NoBuffer` | Kept for compatibility; entries are always written immediately. |
+| `-NoBuffer` | With background writing (Initialize-CCFLogger -Background), wait until this entry is in the file before returning. Without background writing every entry is written before Write-CCFLog returns, so it has no effect. |
 
 **Example 1**
 

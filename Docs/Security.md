@@ -82,6 +82,13 @@ detected. Do not log secrets on purpose, and register the ones your script handl
 - **No lost entries.** Each write locks the file with a named mutex, so runspaces and processes of the
   same user session that log to the same file at the same time neither lose nor interleave entries.
   Files are rotated by size before every write, so a long session cannot fill the disk with one file.
+- **Background writing keeps what matters synchronous.** With `Initialize-CCFLogger -Background`,
+  `Write-CCFLog` returns before the entry is on disk. ERROR and CRITICAL entries, Security and Audit
+  records and entries logged with `-NoBuffer` still wait until they are written, together with every
+  entry queued before them. A full queue makes the caller wait rather than drop entries, and the queue
+  is written out when PowerShell exits normally or the module is removed. Entries still queued when
+  the process is killed or crashes are lost, so leave it off where every entry must survive a crash,
+  and check `Get-CCFLogWriter` (or `Test-CCFHealth`) for writes that failed.
 - **Log files stay in the Logs folder.** `-Category` and `Initialize-CCFLogger -FileName` accept only
   letters, digits, `.`, `-` and `_`. The `Logging.DefaultPath` override in `ccf_core` is used only
   when, after resolving `..`, it is inside the data folder, so a configuration file cannot send logs
