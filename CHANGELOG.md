@@ -96,6 +96,9 @@ configuration, plugin and parallel execution commands keep working but are depre
 - **Rotation only at start**: `-MaxMB` was checked only when `Initialize-CCFLogger` ran, so a long
   session grew past it, and category files (`CCF_Security.log`, `CCF_Audit.log`...) never rotated.
   The size is now checked before every write, for every file.
+- **Parallel start-up**: runspaces that started the logger, or imported the module, at the same time
+  wrote the same probe file to check that the logs folder was writable, collided and reported it as
+  read-only (`Initialize-CCFLogger -Path` then threw). Each check now uses its own file.
 - **One-item arrays** in hashtables and objects lost their array shape when redacted.
 - **False positives**: GUIDs, Windows SIDs, hexadecimal hashes and certificate thumbprints were
   redacted as random-looking secrets, which removed useful values from audit logs. They are kept now,

@@ -18,10 +18,13 @@ function Test-CCFWritableDirectory {
     param([Parameter(Mandatory = $true)][string]$Path)
 
     try {
-        if (-not (Test-Path -LiteralPath $Path)) { New-Item -ItemType Directory -Path $Path -Force -ErrorAction Stop | Out-Null }
-        $probe = Join-Path $Path '.ccf_write_test'
-        'test' | Out-File -LiteralPath $probe -ErrorAction Stop
-        Remove-Item -LiteralPath $probe -ErrorAction SilentlyContinue
+        # CreateDirectory does nothing when the folder exists, so callers in parallel do not collide.
+        $null = [System.IO.Directory]::CreateDirectory($Path)
+        # A unique probe name per call: runspaces or processes checking the same folder at the
+        # same time would otherwise collide on one file and wrongly report it as read-only.
+        $probe = Join-Path $Path ('.ccf_write_test_' + [guid]::NewGuid().ToString('N'))
+        [System.IO.File]::WriteAllText($probe, 'test')
+        Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
         return $true
     }
     catch {
