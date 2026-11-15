@@ -4,17 +4,38 @@
 [![PowerShell Gallery](https://img.shields.io/powershellgallery/v/ArgosCCF.svg)](https://www.powershellgallery.com/packages/ArgosCCF)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Building blocks for PowerShell automation scripts:
+Secure logging for PowerShell scripts. Passwords, tokens and keys are removed **before** anything is
+written, so a deployment, backup or sync script cannot leak them into a log file, the console or a
+SIEM.
 
-- **Logging** to the console, files and your own providers, with secret redaction, security and
-  audit records, rotation and clean-up. One entry is always one line: messages cannot forge entries.
-- **Layered JSON configuration**: factory defaults, presets and user overrides, merged and cached.
-- **Plugins** that run only from the `Plugins` folder, with optional Authenticode signature checks
-  and an optional restricted runspace.
-- **Parallel execution** in runspace pools, with retries and results in input order.
+```powershell
+Write-CCFLogInfo 'Connecting: Server=db01;User Id=sa;Password=P@ss w0rd;Encrypt=True'
+# [2026-11-15T10:00:00.000Z] [INFO] [System] Connecting: Server=db01;User Id=sa;Password=[REDACTED];Encrypt=True
+
+Write-CCFLogInfo "GET https://admin:S3cret@files.contoso.com with Authorization: Bearer $jwt"
+# ... GET https://admin:[REDACTED]@files.contoso.com with Authorization: Bearer [REDACTED]
+```
+
+- **Redaction that knows the formats**: key/value pairs and JSON (`"password": "..."`, values with
+  spaces), connection strings, credentials in URLs, `Authorization` headers, bearer tokens, private key
+  blocks, JSON web tokens, and GitHub, AWS, Slack, Stripe, Google, npm and `sk-` keys. Random-looking
+  strings are caught too, while GUIDs, SIDs, hashes, paths and host names are left alone.
+- **Your own secrets, wherever they appear**: `Register-CCFSecret` takes the values your script reads
+  (or a `PSCredential`) and redacts them in any format, even inside an error message from another
+  module. `Register-CCFRedactionPattern` adds formats specific to your organization.
+- **Fails closed**: every rule has a time limit. If one runs out or fails, the whole text is replaced
+  rather than written unchecked.
+- **Works with any logger**: `Protect-CCFSensitiveData` redacts text, hashtables, objects and arrays
+  for PSFramework, `Write-Verbose` or your own code, and `Protect-CCFLogFile` cleans transcripts and
+  logs that were already written.
+- **Logs you can trust**: one entry is always one line, so messages cannot forge entries or hide text
+  with terminal escapes. Security and audit records go to their own files, and entries can also go to
+  a SIEM.
+- **Logs stay yours**: they are kept per user, outside the module folder, so updating or removing the
+  module keeps them and an all-users install works without administrator rights.
 
 Windows PowerShell 5.1 and PowerShell 7+ on Windows, Linux and macOS. No dependencies. Every command
-has full help: `Get-Help Invoke-CCFParallel -Full`.
+has full help: `Get-Help Protect-CCFSensitiveData -Full`.
 
 ## Installation
 
@@ -27,49 +48,69 @@ The module loads automatically the first time you call one of its commands.
 ## Quick start
 
 ```powershell
-Initialize-CCFLogger -FileName 'Backup.log'
-Write-CCFLogInfo 'Backup started'
-Write-CCFLog -Message 'Connecting with password=Secr3t!' -Level INFO   # written as password=[REDACTED]
-Write-CCFAuditRecord -Action 'Backup' -User $env:USERNAME -Resource 'D:\Data'
+Initialize-CCFLogger -Path (Join-Path $PSScriptRoot 'logs') -FileName 'Deploy.log'
 
-$config = Get-CCFConfig -ConfigName 'ccf_core'
+$cred = Get-Credential
+Register-CCFSecret -Credential $cred                 # its password is redacted everywhere from now on
 
-$results = Invoke-CCFParallel -InputObjects 'web01', 'web02', 'db01' -MaxThreads 3 -ScriptBlock {
-    param($server)
-    Test-Connection -ComputerName $server -Count 1 -Quiet
-}
-$results | Format-Table Target, Status, Output
+Write-CCFLogInfo "Deploying as $($cred.UserName)"
+Write-CCFLog -Message 'Calling the API' -Data @{ Uri = $uri; ApiKey = $key }   # ApiKey: [REDACTED]
+Write-CCFAuditRecord -Action 'Deploy' -User $env:USERNAME -Resource 'web01'    # CCF_Audit.log
+Write-CCFSecurityRecord -Type 'PathTraversal' -Source 'UserInput' -Payload '../../etc/passwd'
+try { Invoke-Deployment } catch { Write-CCFErrorRecord -ErrorRecord $_ -Context 'Deploy' }
 ```
 
-Logs go to the module's `Logs` folder or, when that folder is read-only (for example after an
-all-users install), to `%LOCALAPPDATA%\ArgosCCF\Logs` (`~/.local/share/ArgosCCF/Logs` on Linux and
-macOS). `Get-CCFPath -Target Logs` shows where.
+Without `-Path`, logs go to `ArgosCCF\Logs` under `%LOCALAPPDATA%` (`$XDG_DATA_HOME` or
+`~/.local/share` on Linux and macOS), or under `$env:CCF_DATA_PATH` when it is set.
+`Get-CCFPath -Target Logs` shows where. `Initialize-CCFLogger -JsonOutput` writes one JSON object per
+line for a log shipper.
 
-More in [`Examples/`](Examples/): logging, configuration layers, plugins and parallel execution.
-Each example runs as part of the tests.
+### With another logger, or on existing files
+
+```powershell
+Write-PSFMessage -Message (Protect-CCFSensitiveData "Calling $uri with $body")   # PSFramework
+$safe = Protect-CCFSensitiveData @{ User = 'bob'; Password = 'x'; Items = @('token=abc') }
+
+Start-Transcript -Path .\deploy.txt; .\Deploy.ps1; Stop-Transcript
+Protect-CCFLogFile -Path .\deploy.txt                # writes deploy.redacted.txt
+```
+
+`Get-CCFRedactionPattern` lists every rule in the order it is applied. See
+[Security](Docs/Security.md) for exactly what is redacted and what is not.
+
+More in [`Examples/`](Examples/). Each example runs as part of the tests.
 
 ## Commands
 
 | Area | Commands |
 |---|---|
-| Logging | `Initialize-CCFLogger`, `Write-CCFLog`, `Write-CCFLogInfo`, `Write-CCFLogSuccess`, `Write-CCFLogWarn`, `Write-CCFLogError`, `Write-CCFLogCritical`, `Write-CCFLogDebug`, `Write-CCFLogHeader`, `Set-CCFLogLevel`, `Register-CCFLogProvider`, `Register-CCFSIEMProvider` |
-| Security and audit | `Write-CCFSecurityRecord`, `Write-CCFAuditRecord`, `Write-CCFErrorRecord`, `Protect-CCFSensitiveData`, `Test-CCFEntropyContent`, `Remove-CCFOldLog` |
-| Configuration | `Get-CCFConfig`, `Set-CCFUserConfig`, `Merge-CCFConfig`, `Test-CCFConfigSchema`, `Remove-CCFConfigCache` |
-| Plugins | `Get-CCFPlugin`, `Invoke-CCFPlugin`, `Confirm-CCFPluginSignature` |
-| Execution | `Invoke-CCFParallel` |
+| Redaction | `Protect-CCFSensitiveData`, `Protect-CCFLogFile`, `Register-CCFSecret`, `Unregister-CCFSecret`, `Register-CCFRedactionPattern`, `Unregister-CCFRedactionPattern`, `Get-CCFRedactionPattern`, `Test-CCFEntropyContent` |
+| Logging | `Initialize-CCFLogger`, `Write-CCFLog`, `Write-CCFLogInfo`, `Write-CCFLogSuccess`, `Write-CCFLogWarn`, `Write-CCFLogError`, `Write-CCFLogCritical`, `Write-CCFLogDebug`, `Write-CCFLogHeader`, `Set-CCFLogLevel`, `Register-CCFLogProvider`, `Register-CCFSIEMProvider`, `Remove-CCFOldLog` |
+| Security and audit records | `Write-CCFSecurityRecord`, `Write-CCFAuditRecord`, `Write-CCFErrorRecord` |
 | Environment | `Get-CCFPath`, `Initialize-CCFEnvironment`, `Test-CCFHealth`, `Submit-CCFHeartbeat` |
+| Deprecated (removed in 2.0.0) | Configuration: `Get-CCFConfig`, `Set-CCFUserConfig`, `Merge-CCFConfig`, `Test-CCFConfigSchema`, `Remove-CCFConfigCache`. Plugins: `Get-CCFPlugin`, `Invoke-CCFPlugin`, `Confirm-CCFPluginSignature`. Parallel execution: `Invoke-CCFParallel` |
 
-Older names such as `Log-Info`, `Init-CCFLogger`, `Get-CCFPlugins` and `Catch-CCFError` remain as
-aliases. See the [API reference](Docs/API-Reference.md) for every command and alias.
+Older names such as `Log-Info`, `Init-CCFLogger`, `Redact-CCFSensitiveData` and `Catch-CCFError` remain
+as aliases. See the [API reference](Docs/API-Reference.md) for every command and alias.
+
+### Deprecated areas
+
+Up to 1.3, ArgosCCF also offered layered JSON configuration, plugins and parallel execution. They keep
+working in 1.x, unchanged except that user settings are now saved in the per-user data folder, but
+they will be removed in 2.0.0 so the module can focus on logging. Alternatives: the
+[Configuration](https://www.powershellgallery.com/packages/Configuration) or
+[PSFramework](https://www.powershellgallery.com/packages/PSFramework) modules for configuration,
+ordinary modules for plugins, and `ForEach-Object -Parallel` (PowerShell 7) or
+[ThreadJob](https://www.powershellgallery.com/packages/ThreadJob) for parallel work. Plugins still run
+only from the `Plugins` folder of the installed module, so copy them again after an update.
 
 ## Documentation
 
+- [Security](Docs/Security.md): what is redacted, what is not, and a checklist
 - [Getting started](Docs/Getting-Started.md)
-- [Configuration guide](Docs/Configuration-Guide.md)
-- [Plugin development](Docs/Plugin-Development.md)
-- [Security](Docs/Security.md): what is protected, what is not, and a checklist
 - [Module structure](Docs/Module-Structure.md)
 - [API reference](Docs/API-Reference.md)
+- Deprecated areas: [configuration guide](Docs/Configuration-Guide.md), [plugin development](Docs/Plugin-Development.md)
 
 ## Development
 
@@ -82,9 +123,10 @@ The repository follows the layout of the [Sampler](https://github.com/gaelcolas/
 template: the package is built from the runtime files only, and the QA tests check that every
 command has complete help, that the code passes PSScriptAnalyzer with
 [`PSScriptAnalyzerSettings.psd1`](PSScriptAnalyzerSettings.psd1) (including Windows PowerShell 5.1
-compatibility) and that the changelog is up to date. CI runs on Windows PowerShell 5.1 and on
-PowerShell 7 on Windows, Linux and macOS, and installs the package with `Install-Module`.
-Pushing a `v*` tag publishes the version to the PowerShell Gallery.
+compatibility) and that the changelog is up to date. The tests write logs to a temporary data folder
+(`$env:CCF_DATA_PATH`), never to yours. CI runs on Windows PowerShell 5.1 and on PowerShell 7 on
+Windows, Linux and macOS, and installs the package with `Install-Module`. Pushing a `v*` tag
+publishes the version to the PowerShell Gallery.
 
 See [CONTRIBUTING](.github/CONTRIBUTING.md), [SECURITY](SECURITY.md) and the [CHANGELOG](CHANGELOG.md).
 

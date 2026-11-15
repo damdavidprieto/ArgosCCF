@@ -1,8 +1,8 @@
 # ArgosCCF logging engine.
 #
 # Writes log entries to the console (or a registered provider), to a SIEM provider and to log
-# files, after redacting secrets. Also provides security and audit records, log rotation and
-# clean-up, and a health check.
+# files, after redacting secrets (Redaction.ps1). Also provides security and audit records, log
+# rotation and clean-up, and a health check.
 
 $script:LogProvider = $null
 $script:SIEMProvider = $null
@@ -46,27 +46,6 @@ function Test-CCFLogName {
     param([AllowEmptyString()][string]$Name)
 
     return ($Name -match '^[A-Za-z0-9][A-Za-z0-9._-]*$' -and $Name -notmatch '\.\.')
-}
-
-function Get-CCFSecretsRegex {
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-    return '(?i)(password|passwd|pwd|token|api_key|secret|authorization|auth_token|apikey)'
-}
-
-function Invoke-CCFEntropyScan {
-    [CmdletBinding()]
-    [OutputType([string])]
-    param([AllowNull()][AllowEmptyString()][string]$InputString)
-
-    if ([string]::IsNullOrEmpty($InputString)) { return '' }
-    $words = $InputString -split '\s+'
-    $newWords = foreach ($word in $words) {
-        $cleanWord = $word -replace '[,;.:]$', ''
-        if (Test-CCFEntropyContent -String $cleanWord) { '[REDACTED-ENTROPY]' } else { $word }
-    }
-    return ($newWords -join ' ')
 }
 
 # --- Level and providers ---
@@ -169,147 +148,6 @@ function Register-CCFSIEMProvider {
     Write-CCFLog 'SIEM provider registered.' -Level 'SUCCESS'
 }
 
-# --- Redaction ---
-
-function Test-CCFEntropyContent {
-    <#
-    .SYNOPSIS
-        Tests whether a string looks like a secret, such as an API key or a token.
-
-    .DESCRIPTION
-        Returns $true for strings of 20 or more characters without spaces or path characters
-        that mix at least three kinds of characters (upper case, lower case, digits, - _ + =),
-        or two kinds when longer than 32 characters. Protect-CCFSensitiveData uses it to
-        redact values that are not labeled as secrets. It is a heuristic: it can miss secrets
-        and flag harmless identifiers.
-
-    .PARAMETER String
-        The text to test.
-
-    .EXAMPLE
-        Test-CCFEntropyContent -String 'AKIA-872H-J92K-LL92-MM102-PP01'
-
-        Returns $true.
-
-    .EXAMPLE
-        Test-CCFEntropyContent -String 'C:\Windows\System32'
-
-        Returns $false: paths are not treated as secrets.
-    #>
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param(
-        [AllowNull()]
-        [AllowEmptyString()]
-        [string]$String
-    )
-
-    if ([string]::IsNullOrEmpty($String) -or $String.Length -lt 20 -or $String -match '\s') { return $false }
-    if ($String -match '[\\/:]') { return $false }
-
-    $typeCount = 0
-    if ($String -cmatch '[A-Z]') { $typeCount++ }
-    if ($String -cmatch '[a-z]') { $typeCount++ }
-    if ($String -match '[0-9]') { $typeCount++ }
-    if ($String -match '[-_+=]') { $typeCount++ }
-
-    return ($typeCount -ge 3 -or ($typeCount -ge 2 -and $String.Length -gt 32))
-}
-
-function Protect-CCFSensitiveData {
-    <#
-    .SYNOPSIS
-        Returns a copy of the data with passwords, tokens and other secrets replaced by [REDACTED].
-
-    .DESCRIPTION
-        Strings: "password=...", "token: ..." and similar pairs are replaced by "password=[REDACTED]",
-        and words that look like secrets (see Test-CCFEntropyContent) by "[REDACTED-ENTROPY]".
-        Hashtables and objects: values whose key names a secret (password, token, secret,
-        apikey, authorization...) or that look like secrets are replaced by "[REDACTED]", and
-        nested hashtables and objects are processed too. Values nested more than five levels
-        deep are replaced by "[DEPTH-LIMIT]" instead of being logged unchecked.
-        The input is not modified. Write-CCFLog applies this to every message and its data.
-
-    .PARAMETER InputData
-        A string, hashtable or object to redact. Other types are returned unchanged.
-
-    .PARAMETER Depth
-        Current nesting level, used internally for recursion. Leave it at 0.
-
-    .EXAMPLE
-        Protect-CCFSensitiveData -InputData 'login user=admin password=Secr3t!'
-
-        Returns "login user=admin password=[REDACTED]".
-
-    .EXAMPLE
-        Protect-CCFSensitiveData -InputData @{ User = 'admin'; ApiKey = 'abc' }
-
-        Returns a hashtable where ApiKey is "[REDACTED]".
-    #>
-    [CmdletBinding()]
-    [OutputType([string], [hashtable], [pscustomobject], [object])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [AllowNull()]
-        [AllowEmptyString()]
-        [object]$InputData,
-
-        [int]$Depth = 0
-    )
-
-    if ($null -eq $InputData) { return $InputData }
-    if ($Depth -gt 5) { return '[DEPTH-LIMIT]' }
-
-    $secretsRegex = Get-CCFSecretsRegex
-    $isHashtable = $InputData -is [System.Collections.IDictionary]
-    $isCustomObject = $InputData -is [System.Management.Automation.PSCustomObject]
-
-    if ($InputData -is [string]) {
-        $text = $InputData -replace "$secretsRegex\s*[:=]\s*(\S+)", '$1=[REDACTED]'
-        if ($text.Length -lt 2000) { return (Invoke-CCFEntropyScan -InputString $text) }
-        return $text
-    }
-
-    if ($isHashtable -or $isCustomObject) {
-        # Ordered output keeps hashtables and objects in their original key order.
-        $newData = [ordered]@{}
-        $props = if ($isHashtable) { @($InputData.Keys) } else { $InputData.PSObject.Properties.Name }
-
-        foreach ($prop in $props) {
-            $val = if ($isHashtable) { $InputData[$prop] } else { $InputData.$prop }
-
-            $isSecret = [string]$prop -match $secretsRegex
-            if ($val -is [string] -and (Test-CCFEntropyContent -String $val)) { $isSecret = $true }
-
-            if ($isSecret) {
-                $newData[$prop] = '[REDACTED]'
-            }
-            elseif ($Depth -ge 5 -and $null -ne $val) {
-                # Values nested deeper than five levels are not inspected, and not logged either.
-                $newData[$prop] = '[DEPTH-LIMIT]'
-            }
-            elseif ($val -is [System.Collections.IDictionary] -or $val -is [System.Management.Automation.PSCustomObject]) {
-                $newData[$prop] = Protect-CCFSensitiveData -InputData $val -Depth ($Depth + 1)
-            }
-            elseif ($val -is [string]) {
-                $newData[$prop] = Protect-CCFSensitiveData -InputData $val -Depth ($Depth + 1)
-            }
-            else {
-                $newData[$prop] = $val
-            }
-        }
-
-        if ($isHashtable) {
-            $result = @{}
-            foreach ($key in $newData.Keys) { $result[$key] = $newData[$key] }
-            return $result
-        }
-        return [PSCustomObject]$newData
-    }
-
-    return $InputData
-}
-
 # --- Health ---
 
 function Test-CCFHealth {
@@ -393,7 +231,9 @@ function Initialize-CCFLogger {
 
     .DESCRIPTION
         Until this runs, Write-CCFLog writes System messages to the console only. Afterwards
-        they also go to the given file in the Logs folder (see Get-CCFPath -Target Logs).
+        they also go to the given file in the Logs folder: the folder given with -Path, or
+        Logs in the per-user data folder (see Get-CCFPath -Target Logs). Logs are never written
+        into the folder the module is installed in, so updating the module keeps them.
         If the file is larger than -MaxMB, it is renamed to .1 (older copies shift to .2, .3
         and so on, keeping -MaxRolling files) and a new file is started.
         Messages with another category (Security, Audit, Errors...) always go to their own
@@ -402,6 +242,11 @@ function Initialize-CCFLogger {
     .PARAMETER FileName
         Name of the log file, without a folder. Letters, digits, dot, dash and underscore only.
         Defaults to CCF_Session.log.
+
+    .PARAMETER Path
+        Folder for the log files of this session, for example your script's own logs folder.
+        It is created if it does not exist; an error is thrown if it cannot be written.
+        Without it, the per-user data folder is used.
 
     .PARAMETER MaxMB
         Size in MB above which the file is rotated. Defaults to 10.
@@ -421,11 +266,19 @@ function Initialize-CCFLogger {
         Initialize-CCFLogger -JsonOutput
 
         Logs JSON lines to CCF_Session.log, for collection by a log shipper.
+
+    .EXAMPLE
+        Initialize-CCFLogger -Path (Join-Path $PSScriptRoot 'logs') -FileName 'Deploy.log'
+
+        Writes this script's logs, and its Security and Audit records, next to the script.
     #>
     [CmdletBinding()]
     param(
         [ValidateScript({ if (Test-CCFLogName -Name $_) { $true } else { throw "FileName must be a plain file name (letters, digits, '.', '-', '_'), not a path: $_" } })]
         [string]$FileName = 'CCF_Session.log',
+
+        [ValidateNotNullOrEmpty()]
+        [string]$Path,
 
         [ValidateRange(1, 10240)]
         [int]$MaxMB = 10,
@@ -441,6 +294,12 @@ function Initialize-CCFLogger {
         Hostname = [Environment]::MachineName
         Version  = "$($MyInvocation.MyCommand.Module.Version)"
         Engine   = 'ArgosCCF'
+    }
+
+    if ($Path) {
+        $folder = [System.IO.Path]::GetFullPath($PSCmdlet.GetUnresolvedProviderPathFromPSPath($Path))
+        if (-not (Test-CCFWritableDirectory -Path $folder)) { throw "The log folder cannot be created or written: $folder" }
+        $script:LogsPathOverride = $folder
     }
 
     $logDir = Get-CCFPath -Target 'Logs'

@@ -1,4 +1,5 @@
 # ArgosCCF execution engine: parallel execution with runspace pools, retries and timing.
+# Deprecated: removed in 2.0.0; use ForEach-Object -Parallel (PowerShell 7) or ThreadJob.
 
 function Invoke-CCFParallel {
     <#
@@ -6,6 +7,9 @@ function Invoke-CCFParallel {
         Runs a script block for each input object in parallel and returns one result per object.
 
     .DESCRIPTION
+        Deprecated: parallel execution will be removed from ArgosCCF in 2.0.0, which keeps only
+        logging and redaction. It keeps working in 1.x. Use ForEach-Object -Parallel (PowerShell 7)
+        or the ThreadJob module instead.
         Runs -ScriptBlock once per input object in a pool of runspaces, up to -MaxThreads at a
         time, and returns one object per input, in input order, with Target, Output, Status
         ("Success" or "Failed"), Error, Retries, Duration (seconds) and Index.

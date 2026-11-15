@@ -23,10 +23,10 @@ Describe "ArgosCCF: logging end to end" {
         }
 
         It "redacts high-entropy tokens" {
-            Write-CCFLogInfo "key AKIA-872H-J92K-LL92-MM102-PP01 ($runId)"
+            Write-CCFLogInfo "key Xk9fQ2mLp7RtZ4vNw8Bc ($runId)"
             $line = Get-LastLine $sessionPath
             $line | Should -Match "REDACTED-ENTROPY"
-            $line | Should -Not -Match "AKIA-872H"
+            $line | Should -Not -Match "Xk9fQ2mLp7"
         }
 
         It "keeps the old (message, data) positional form working" {

@@ -6,7 +6,7 @@
     Author               = 'David Prieto'
     CompanyName          = 'David Prieto'
     Copyright            = '(c) 2026 David Prieto. Licensed under the MIT License.'
-    Description          = 'Building blocks for PowerShell automation scripts: logging with secret redaction, security and audit records and log rotation; layered JSON configuration; plugins with signature checks and an optional restricted runspace; and parallel execution with retries. Windows PowerShell 5.1 and PowerShell 7+.'
+    Description          = 'Secure logging for PowerShell scripts. Passwords, tokens and keys are redacted before anything is written: key/value pairs and JSON, connection strings, credentials in URLs, Authorization headers, private keys, GitHub, AWS, Slack, Stripe, Google and npm tokens, values you register with Register-CCFSecret, your own patterns, and random-looking strings. Every rule has a time limit and fails closed. Entries cannot be forged, security and audit records go to their own files, and logs are kept per user, outside the module folder. The redaction also works on its own: put Protect-CCFSensitiveData in front of any other logger, or clean transcripts with Protect-CCFLogFile. Windows PowerShell 5.1 and PowerShell 7+, no dependencies.'
     PowerShellVersion    = '5.1'
 
     # Keep in sync with Export-ModuleMember in ArgosCCF.psm1 (tests/QA checks it).
@@ -36,19 +36,27 @@
         'Test-CCFHealth'
         'Submit-CCFHeartbeat'
 
-        # Configuration
+        # Redaction
+        'Register-CCFSecret'
+        'Unregister-CCFSecret'
+        'Register-CCFRedactionPattern'
+        'Unregister-CCFRedactionPattern'
+        'Get-CCFRedactionPattern'
+        'Protect-CCFLogFile'
+
+        # Configuration (deprecated, removed in 2.0.0)
         'Get-CCFConfig'
         'Set-CCFUserConfig'
         'Merge-CCFConfig'
         'Remove-CCFConfigCache'
         'Test-CCFConfigSchema'
 
-        # Plugins
+        # Plugins (deprecated, removed in 2.0.0)
         'Get-CCFPlugin'
         'Invoke-CCFPlugin'
         'Confirm-CCFPluginSignature'
 
-        # Execution
+        # Execution (deprecated, removed in 2.0.0)
         'Invoke-CCFParallel'
     )
     CmdletsToExport      = @()
@@ -63,7 +71,7 @@
 
     PrivateData          = @{
         PSData = @{
-            Tags         = @('Logging', 'Configuration', 'Plugins', 'Parallel', 'Runspace', 'Security', 'Audit', 'Redaction', 'Automation', 'Windows', 'Linux', 'MacOS', 'PSEdition_Desktop', 'PSEdition_Core')
+            Tags         = @('Logging', 'Redaction', 'Secrets', 'Masking', 'Sanitize', 'Security', 'Audit', 'Transcript', 'SIEM', 'Compliance', 'DevSecOps', 'Windows', 'Linux', 'MacOS', 'PSEdition_Desktop', 'PSEdition_Core')
             LicenseUri   = 'https://github.com/damdavidprieto/ArgosCCF/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/damdavidprieto/ArgosCCF'
             ReleaseNotes = 'See https://github.com/damdavidprieto/ArgosCCF/blob/main/CHANGELOG.md'

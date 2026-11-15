@@ -77,7 +77,14 @@ if (-not $SkipTests) {
     $config.Run.Path = $testsPath
     $config.Run.PassThru = $true
     $config.Output.Verbosity = 'Normal'
-    $result = Invoke-Pester -Configuration $config
+    # The tests write logs and user settings to a temporary data folder, never to your own.
+    $previousDataPath = $env:CCF_DATA_PATH
+    $env:CCF_DATA_PATH = Join-Path ([System.IO.Path]::GetTempPath()) ('ArgosCCF-tests-' + [guid]::NewGuid().ToString('N'))
+    try { $result = Invoke-Pester -Configuration $config }
+    finally {
+        Remove-Item -LiteralPath $env:CCF_DATA_PATH -Recurse -Force -ErrorAction SilentlyContinue
+        $env:CCF_DATA_PATH = $previousDataPath
+    }
     if ($result.FailedCount -gt 0) {
         throw "$($result.FailedCount) test(s) failed."
     }

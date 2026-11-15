@@ -1,8 +1,9 @@
 # ArgosCCF configuration manager.
 #
 # Layered JSON configuration: Configs/Factory/<name>.json, then optional presets from
-# Configs/Presets/<preset>.json, then the user's overrides in Configs/User/<name>.json, merged
-# in that order and cached in memory.
+# Configs/Presets/<preset>.json, then the user's overrides (in the per-user data folder, see
+# Get-CCFPath -Target UserConfigs), merged in that order and cached in memory.
+# Deprecated: removed in 2.0.0; ArgosCCF itself still reads ccf_core for Logging.DefaultPath.
 
 $script:ConfigCache = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
 
@@ -36,6 +37,8 @@ function Merge-CCFConfig {
         Merges one configuration object into another, recursively.
 
     .DESCRIPTION
+        Deprecated: configuration will be removed from ArgosCCF in 2.0.0, which keeps only logging
+        and redaction. It keeps working in 1.x.
         Copies every property of -Override into -Base and returns -Base. Nested objects are
         merged property by property, arrays are concatenated, and any other value in -Override
         replaces the one in -Base. -Base is modified in place; pass a copy if you need to keep
@@ -92,9 +95,14 @@ function Get-CCFConfig {
         Loads a configuration by name, merging the factory, preset and user layers.
 
     .DESCRIPTION
-        Reads Configs/Factory/<ConfigName>.json, merges the section named <ConfigName> of each
-        preset in Configs/Presets/<preset>.json, then merges Configs/User/<ConfigName>.json, and
-        returns the result. The result is cached per name and preset list; use -ForceRefresh
+        Deprecated: configuration will be removed from ArgosCCF in 2.0.0, which keeps only
+        logging and redaction. It keeps working in 1.x.
+        Reads Configs/Factory/<ConfigName>.json in the module folder, merges the section named
+        <ConfigName> of each preset in Configs/Presets/<preset>.json (in the module folder, then
+        in the data folder), then merges the user settings: Configs/User/<ConfigName>.json in
+        the module folder (where versions before 1.4.0 saved them) and then the file saved by
+        Set-CCFUserConfig in the data folder (Get-CCFPath -Target UserConfigs), and returns the
+        result. The result is cached per name and preset list; use -ForceRefresh
         or Remove-CCFConfigCache after changing the files. Names must be plain file names:
         anything that looks like a path is refused and logged as a security block.
         The returned object is the cached one, so changes to it are visible to later calls.
@@ -146,8 +154,10 @@ function Get-CCFConfig {
 
     $configRoot = Get-CCFPath -Target 'Configs'
     $factoryPath = Join-Path (Join-Path $configRoot 'Factory') "$ConfigName.json"
-    $presetsPath = Join-Path $configRoot 'Presets'
-    $userPath = Join-Path (Join-Path $configRoot 'User') "$ConfigName.json"
+    # Presets and user settings can live next to the module (as before 1.4.0) and in the
+    # per-user data folder, which survives module updates; the data folder wins.
+    $presetFolders = @((Join-Path $configRoot 'Presets'), (Join-Path (Join-Path (Get-CCFPath -Target 'Data') 'Configs') 'Presets'))
+    $userPaths = @((Join-Path (Join-Path $configRoot 'User') "$ConfigName.json"), (Join-Path (Get-CCFPath -Target 'UserConfigs') "$ConfigName.json"))
 
     $finalConfig = [PSCustomObject]@{}
 
@@ -163,23 +173,25 @@ function Get-CCFConfig {
     }
 
     foreach ($preset in $ActivePresets) {
-        $pPath = Join-Path $presetsPath "$preset.json"
-        if (Test-Path -LiteralPath $pPath) {
+        foreach ($folder in $presetFolders) {
+            $pPath = Join-Path $folder "$preset.json"
+            if (-not (Test-Path -LiteralPath $pPath)) { continue }
             try {
                 $pContent = Read-CCFJsonFile -Path $pPath
                 if ($pContent.PSObject.Properties[$ConfigName]) {
                     $finalConfig = Merge-CCFConfig -Base $finalConfig -Override $pContent.$ConfigName
                 }
             }
-            catch { Write-CCFLogWarn "Could not apply preset '$preset': $($_.Exception.Message)" }
+            catch { Write-CCFLogWarn "Could not apply preset '$preset' from ${pPath}: $($_.Exception.Message)" }
         }
     }
 
-    if (Test-Path -LiteralPath $userPath) {
+    foreach ($userPath in $userPaths) {
+        if (-not (Test-Path -LiteralPath $userPath)) { continue }
         try {
             $finalConfig = Merge-CCFConfig -Base $finalConfig -Override (Read-CCFJsonFile -Path $userPath)
         }
-        catch { Write-CCFLogWarn "Could not load the user configuration for ${ConfigName}: $($_.Exception.Message)" }
+        catch { Write-CCFLogWarn "Could not load the user configuration ${userPath}: $($_.Exception.Message)" }
     }
 
     $script:ConfigCache[$cacheKey] = $finalConfig
@@ -192,8 +204,11 @@ function Set-CCFUserConfig {
         Saves user settings for a configuration and clears its cached copies.
 
     .DESCRIPTION
-        Writes -ConfigObject as JSON (UTF-8) to Configs/User/<ConfigName>.json, the top layer
-        that Get-CCFConfig merges over the factory and preset layers. Cached results for that
+        Deprecated: configuration will be removed from ArgosCCF in 2.0.0. It keeps working in 1.x.
+        Writes -ConfigObject as JSON (UTF-8) to <ConfigName>.json in the user settings folder of
+        the per-user data folder (Get-CCFPath -Target UserConfigs), outside the module folder,
+        so the settings survive module updates. It is the top layer that Get-CCFConfig merges
+        over the factory and preset layers. Cached results for that
         name are removed, so the next Get-CCFConfig reads the new values.
         Names must be plain file names; anything that looks like a path is refused.
         Supports -WhatIf and -Confirm.
@@ -223,7 +238,7 @@ function Set-CCFUserConfig {
         return
     }
 
-    $userDir = Join-Path (Get-CCFPath -Target 'Configs') 'User'
+    $userDir = Get-CCFPath -Target 'UserConfigs'
     $userPath = Join-Path $userDir "$ConfigName.json"
     if (-not $PSCmdlet.ShouldProcess($userPath, 'Save user configuration')) { return }
 
@@ -249,6 +264,8 @@ function Remove-CCFConfigCache {
         Clears the in-memory configuration cache.
 
     .DESCRIPTION
+        Deprecated: configuration will be removed from ArgosCCF in 2.0.0, which keeps only logging
+        and redaction. It keeps working in 1.x.
         Removes every cached result of Get-CCFConfig, so the next call reads the JSON files
         again. Use it after editing configuration files outside Set-CCFUserConfig. The files
         are not touched. The alias Clear-CCFConfigCache is kept for older scripts.
@@ -272,6 +289,8 @@ function Test-CCFConfigSchema {
         Validates a configuration object against a simple schema and fills in defaults.
 
     .DESCRIPTION
+        Deprecated: configuration will be removed from ArgosCCF in 2.0.0, which keeps only logging
+        and redaction. It keeps working in 1.x.
         The schema is a hashtable with one entry per property. Each entry is a hashtable that
         can contain Mandatory ($true/$false), Type (a .NET type such as [int]), AllowedValues
         (an array) and Default. Missing properties with a Default are added to -Config.

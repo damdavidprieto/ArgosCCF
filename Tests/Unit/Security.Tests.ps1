@@ -106,14 +106,14 @@ Describe 'Logs folder override' {
         InModuleScope ArgosCCF { $script:PathCache.Clear() }
     }
 
-    It 'ignores Logging.DefaultPath when it climbs out of the module with ..' {
+    It 'ignores Logging.DefaultPath when it climbs out of the data folder with ..' {
         Mock -ModuleName ArgosCCF Get-CCFConfig { [pscustomobject]@{ Logging = [pscustomobject]@{ DefaultPath = '../../outside-logs' } } }
         Get-CCFPath -Target 'Logs' | Should -Not -Match 'outside-logs'
     }
 
-    It 'uses Logging.DefaultPath when it is inside the module folder' {
+    It 'uses Logging.DefaultPath when it is inside the data folder' {
         Mock -ModuleName ArgosCCF Get-CCFConfig { [pscustomobject]@{ Logging = [pscustomobject]@{ DefaultPath = 'CustomLogs' } } }
-        Get-CCFPath -Target 'Logs' | Should -Be ([IO.Path]::GetFullPath((Join-Path $moduleRoot 'CustomLogs')))
+        Get-CCFPath -Target 'Logs' | Should -Be ([IO.Path]::GetFullPath((Join-Path (Get-CCFPath -Target 'Data') 'CustomLogs')))
     }
 }
 

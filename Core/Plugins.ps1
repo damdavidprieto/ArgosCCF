@@ -2,6 +2,7 @@
 #
 # Discovery (Get-CCFPlugin), signature checks (Confirm-CCFPluginSignature) and execution with
 # lifecycle hooks and an optional restricted runspace (Invoke-CCFPlugin).
+# Deprecated: removed in 2.0.0, which keeps only logging and redaction.
 
 # --- Private helpers ---
 
@@ -126,6 +127,9 @@ function Confirm-CCFPluginSignature {
         Checks whether a plugin file has a valid Authenticode signature.
 
     .DESCRIPTION
+        Deprecated: plugins will be removed from ArgosCCF in 2.0.0, which keeps only logging and
+        redaction. It keeps working in 1.x. Plugins run only from the Plugins folder of the
+        installed module, so copy them again after updating it.
         Returns a hashtable with Valid ($true only for a valid, trusted signature), Status and,
         when valid, Signer. Self-signed certificates that are not trusted on the machine, and
         any platform without Authenticode (Linux, macOS), return Valid = $false: the check
@@ -158,6 +162,9 @@ function Get-CCFPlugin {
         Lists the plugins in the Plugins folder (or another folder) with their metadata.
 
     .DESCRIPTION
+        Deprecated: plugins will be removed from ArgosCCF in 2.0.0, which keeps only logging and
+        redaction. It keeps working in 1.x. Plugins run only from the Plugins folder of the
+        installed module, so copy them again after updating it.
         Finds every .ps1 file in the folder and its subfolders and returns one object per
         plugin with Name, Description, Version, Author, Path, Signed and Manifest.
         Metadata comes from a ccf_plugin.json file in the plugin's folder (Name, Version,
@@ -242,6 +249,9 @@ function Invoke-CCFPlugin {
         Runs a plugin from the Plugins folder, with its lifecycle hooks and optional sandboxing.
 
     .DESCRIPTION
+        Deprecated: plugins will be removed from ArgosCCF in 2.0.0, which keeps only logging and
+        redaction. It keeps working in 1.x. Plugins run only from the Plugins folder of the
+        installed module, so copy them again after updating it.
         Checks, in order:
         1. The plugin must be a .ps1 file inside the module's Plugins folder (after resolving
            "..", so paths cannot escape it). Anything else is refused and logged as CRITICAL.

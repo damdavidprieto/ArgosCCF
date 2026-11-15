@@ -9,7 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.4.0] - 2026-11-14
 
+ArgosCCF is now a secure logging module: secrets are redacted before anything is written. The
+configuration, plugin and parallel execution commands keep working but are deprecated.
+
+### Added
+- **Redaction of known formats**: connection strings (values with spaces included), credentials in
+  URLs, `Authorization` and `Proxy-Authorization` headers (the scheme is kept), bearer tokens, PEM
+  private key blocks, JSON web tokens, and GitHub, AWS access key ID, Slack, Stripe, Google API, npm
+  and `sk-` keys. Key/value pairs are also recognized in JSON (`"password": "..."`), with quoted values
+  that contain spaces, and inside longer keys (`db_password`, `ClientSecret`, `x-api-key`).
+- `Register-CCFSecret` and `Unregister-CCFSecret`: values (or the password of a `PSCredential` or a
+  `SecureString`) that are redacted wherever they appear, in any format, with their URL-encoded form.
+- `Register-CCFRedactionPattern`, `Unregister-CCFRedactionPattern` and `Get-CCFRedactionPattern`:
+  your own regular expressions, and the list of every rule in the order it is applied.
+- `Protect-CCFLogFile`: writes a redacted copy of a transcript or of a log written by another tool,
+  line by line, including private key blocks that span several lines.
+- `Protect-CCFSensitiveData` accepts pipeline input and arrays, so it can sit in front of any other
+  logger (for example `Write-PSFMessage`).
+- `Initialize-CCFLogger -Path`: the folder for this session's logs, such as the script's own folder.
+- `Get-CCFPath -Target Data` and `-Target UserConfigs`.
+
+### Deprecated
+- Configuration (`Get-CCFConfig`, `Set-CCFUserConfig`, `Merge-CCFConfig`, `Test-CCFConfigSchema`,
+  `Remove-CCFConfigCache`), plugins (`Get-CCFPlugin`, `Invoke-CCFPlugin`,
+  `Confirm-CCFPluginSignature`) and `Invoke-CCFParallel`. They keep working in 1.x and will be removed
+  in 2.0.0. The help and the README name alternatives.
+
 ### Security
+- **Redaction fails closed**: every rule has a 500 ms time limit per text. If a rule runs out of time
+  or fails, the whole text is replaced instead of being written unchecked. Text of 2,000 characters
+  or more used to skip the check for random-looking secrets; it no longer does.
+- **Secrets that were written in clear**: JSON values (`{"password":"..."}`), quoted values with
+  spaces, `Authorization: Basic ...`, credentials in URLs, connection string passwords with spaces,
+  AWS access key IDs and private key blocks. A probe of 16 common cases found 7 that leaked; all 16
+  are now redacted.
+- **Objects**: `PSCredential`, `NetworkCredential` and `SecureString` values in log data are redacted,
+  arrays are checked item by item, and other objects are written as their redacted text form instead
+  of being serialized with all their properties.
 - **Log files outside the Logs folder.** `Write-CCFLog -Category` and `Initialize-CCFLogger -FileName`
   became part of a file path without checks, so a value such as `..\..\x` wrote outside `Logs`. They now
   accept only letters, digits, `.`, `-` and `_`.
@@ -34,7 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Exports**: the Core files were imported as separate global modules (`Logging`, `Configuration`,
   `Plugins`, `Execution`), so `Get-Command -Module ArgosCCF` listed only 2 functions and those generic
   module names could clash with other modules. They are now loaded into ArgosCCF's own scope and the
-  module exports its 31 functions and 17 aliases.
+  module exports its functions (37 in this version) and 17 aliases.
 - **Missing functions**: `Write-CCFSecurityRecord`, `Write-CCFAuditRecord` and the aliases `Log-Attack`,
   `Log-Audit`, `Test-CCFHighEntropy` were documented and listed in the manifest but did not exist.
   Added, together with `Remove-CCFOldLog` (alias `Remove-OldCCFLogs`). `Merge-CCFConfig`,
@@ -47,7 +83,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its main code twice; they are now read from the script's syntax tree. Sandboxed runs also leaked a
   `PowerShell` object into the result and now dispose their runspace.
 - **All-users installs**: importing the module threw when it could not create `Logs` inside a read-only
-  module folder (such as `Program Files`). Logs now fall back to a per-user folder.
+  module folder (such as `Program Files`).
+- **Logs and user settings were lost on every update**: they were saved inside the versioned folder the
+  module is installed in, so `Update-Module` started with none and `Uninstall-Module` deleted them.
+  They are now kept in a per-user data folder (`ArgosCCF` under `%LOCALAPPDATA%`, `$XDG_DATA_HOME` or
+  `~/.local/share`, or `$env:CCF_DATA_PATH`) and ArgosCCF no longer writes into its own folder. User
+  settings saved next to the module by earlier versions are still read.
+- **One-item arrays** in hashtables and objects lost their array shape when redacted.
+- **False positives**: GUIDs, Windows SIDs, hexadecimal hashes and certificate thumbprints were
+  redacted as random-looking secrets, which removed useful values from audit logs. They are kept now,
+  and so are identifiers such as `Win32_OperatingSystem` and long kebab-case names.
 - **Windows PowerShell 5.1**: source files with non-ASCII characters are saved as UTF-8 with BOM.
 - Removed a debug line that printed the log target on every write.
 
@@ -74,7 +119,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `[Environment]::MachineName`, which also works on Linux and macOS.
 - `Invoke-CCFParallel` uses the processor count on every platform (it read a Windows-only variable).
 - The configuration cache keeps results for different preset lists apart.
-- `Test-CCFEntropyContent` tells upper and lower case apart, so ordinary words are not redacted.
+- `Test-CCFEntropyContent` requires upper case, lower case and digits with no run of more than six
+  lower case letters (or, from 32 characters, two of those kinds with at least one digit in five), so
+  ordinary words and identifiers are not redacted.
+- `Logging.DefaultPath` in `ccf_core` is now relative to, and must stay inside, the data folder (it was
+  the module folder).
+- The module description, tags and README describe ArgosCCF as a secure logging module.
 - `Plugins/Examples/SystemInfo.ps1` works on Linux and macOS and returns its data instead of printing it.
 - `Configs/Factory/ccf_core.json` lists only the settings the module reads
   (`Logging.DefaultPath`, `Security.RequireSignedPlugins`); the example configurations

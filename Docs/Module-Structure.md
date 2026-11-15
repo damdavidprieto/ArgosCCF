@@ -11,11 +11,12 @@ ArgosCCF/
 ├── ArgosCCF.psd1        # Manifest: version, exported functions and aliases, Gallery metadata
 ├── ArgosCCF.psm1        # Root module: environment initialisation, dot-sources Core/*
 ├── Core/                # Function files, loaded into the module's own scope
-│   ├── Configuration.ps1    # Layered config (Factory / Preset / User), deep merge, cache
-│   ├── Execution.ps1        # Runspace-pool parallel execution
-│   ├── Logging.ps1          # Structured logging, security/audit records, redaction, retention
-│   └── Plugins.ps1          # Plugin discovery, signature check, sandboxing
-├── Configs/             # Factory defaults (shipped) and user overrides (local)
+│   ├── Redaction.ps1        # Secret redaction rules, registered secrets, Protect-CCFLogFile
+│   ├── Logging.ps1          # Structured logging, security/audit records, retention
+│   ├── Configuration.ps1    # Layered config (Factory / Preset / User), deep merge, cache (deprecated)
+│   ├── Execution.ps1        # Runspace-pool parallel execution (deprecated)
+│   └── Plugins.ps1          # Plugin discovery, signature check, sandboxing (deprecated)
+├── Configs/             # Factory defaults (shipped); user settings live in the data folder
 ├── Plugins/             # Plugin scripts; Plugins/Examples is shipped
 ├── Tests/               # Pester: QA/, Unit/, Integration/
 ├── Docs/                # This documentation
@@ -98,8 +99,10 @@ almost nothing.
 
 ArgosCCF's root module also resolves its own root folder, so the module works whether it is
 loaded from a clone or from `PSModulePath`. It tries the folder the module was loaded from
-first, then the `ARGOS_CCF_ROOT` environment variable. Logs go to `Logs` next to the module,
-or to a per-user folder when the module folder is read-only (an all-users install):
+first, then the `ARGOS_CCF_ROOT` environment variable. It never writes into that folder: logs
+and user settings go to a per-user data folder (`$env:CCF_DATA_PATH`, or `ArgosCCF` under
+`%LOCALAPPDATA%`, `$XDG_DATA_HOME` or `~/.local/share`), because the folder a module is
+installed in is versioned and replaced by `Update-Module`, and read-only in an all-users install:
 
 ```powershell
 $script:ArgosCCFRoot = (Get-Item $PSScriptRoot).FullName
