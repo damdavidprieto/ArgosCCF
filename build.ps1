@@ -17,6 +17,11 @@
 .PARAMETER SkipTests
     Do not run the Pester tests.
 
+.PARAMETER CodeCoverage
+    Measure which lines of the runtime files the tests run, print the percentage and write
+    output/coverage.xml (JaCoCo format). On GitHub Actions the result is also added to the run
+    summary. It is reported, not enforced.
+
 .EXAMPLE
     ./build.ps1 -InstallDependencies
 
@@ -27,7 +32,8 @@
 param(
     [switch]$InstallDependencies,
     [switch]$SkipAnalysis,
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [switch]$CodeCoverage
 )
 
 $ErrorActionPreference = 'Stop'
@@ -77,6 +83,16 @@ if (-not $SkipTests) {
     $config.Run.Path = $testsPath
     $config.Run.PassThru = $true
     $config.Output.Verbosity = 'Normal'
+    if ($CodeCoverage) {
+        $config.CodeCoverage.Enabled = $true
+        $config.CodeCoverage.Path = @(
+            Join-Path $PSScriptRoot "$moduleName.psm1"
+            Get-ChildItem -Path (Join-Path $PSScriptRoot 'Core') -Filter '*.ps1' | ForEach-Object FullName
+        )
+        $config.CodeCoverage.OutputFormat = 'JaCoCo'
+        $null = New-Item -ItemType Directory -Path (Join-Path $PSScriptRoot 'output') -Force
+        $config.CodeCoverage.OutputPath = Join-Path $PSScriptRoot 'output/coverage.xml'
+    }
     # The tests write logs and user settings to a temporary data folder, never to your own.
     $previousDataPath = $env:CCF_DATA_PATH
     $env:CCF_DATA_PATH = Join-Path ([System.IO.Path]::GetTempPath()) ('ArgosCCF-tests-' + [guid]::NewGuid().ToString('N'))
@@ -87,6 +103,17 @@ if (-not $SkipTests) {
     }
     if ($result.FailedCount -gt 0) {
         throw "$($result.FailedCount) test(s) failed."
+    }
+    if ($CodeCoverage -and $result.CodeCoverage) {
+        $coverage = $result.CodeCoverage
+        $percent = [math]::Round($coverage.CoveragePercent, 1)
+        Write-Host "Code coverage: $percent% ($($coverage.CommandsExecutedCount) of $($coverage.CommandsAnalyzedCount) commands)" -ForegroundColor Cyan
+        if ($env:GITHUB_STEP_SUMMARY) {
+            $byFile = $coverage.CommandsMissed | Group-Object { Split-Path $_.File -Leaf } | Sort-Object Count -Descending |
+                ForEach-Object { "| $($_.Name) | $($_.Count) |" }
+            $summary = @("### Code coverage: $percent%", '', "$($coverage.CommandsExecutedCount) of $($coverage.CommandsAnalyzedCount) commands run by the tests.", '', '| File | Commands not run |', '|---|---|') + $byFile
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary -Encoding utf8
+        }
     }
 }
 

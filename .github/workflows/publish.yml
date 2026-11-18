@@ -4,12 +4,12 @@ name: Publish
 # Publishes output/<module> (never the repository root) to the PowerShell Gallery when a version
 # tag is pushed, e.g. `git tag v1.4.0 && git push origin v1.4.0`, then creates a GitHub release
 # with that version's CHANGELOG section.
-# Needs these secrets in the `psgallery` environment:
-#   PSGALLERY_API_KEY          a Gallery API key scoped to this package only
-#   CODE_SIGNING_PFX_BASE64    the code signing certificate (.pfx), base64-encoded
-#   CODE_SIGNING_PFX_PASSWORD  the password of that .pfx
-# Every .ps1, .psm1 and .psd1 is Authenticode-signed before it is published; the job fails if
-# the signature is not valid.
+# Secrets of the `psgallery` environment:
+#   PSGALLERY_API_KEY          (required) a Gallery API key scoped to this package only
+#   CODE_SIGNING_PFX_BASE64    (optional) the code signing certificate (.pfx), base64-encoded
+#   CODE_SIGNING_PFX_PASSWORD  (optional) the password of that .pfx
+# When the certificate is set, every .ps1, .psm1 and .psd1 is Authenticode-signed and the job fails
+# unless every signature is valid. Without it, the module is published unsigned, with a warning.
 
 on:
   push:
@@ -26,20 +26,35 @@ jobs:
     runs-on: windows-latest
     environment: psgallery
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Analyze, test and build
         shell: pwsh
         run: ./build.ps1 -InstallDependencies
 
-      - name: Sign the module with the code signing certificate
+      - name: Check the tag matches the manifest and the changelog
+        shell: pwsh
+        run: |
+          $version = (Import-PowerShellDataFile "./output/$env:MODULE_NAME/$env:MODULE_NAME.psd1").ModuleVersion
+          if ("v$version" -ne $env:GITHUB_REF_NAME) { throw "Tag $env:GITHUB_REF_NAME does not match ModuleVersion $version" }
+          $changelog = Get-Content ./CHANGELOG.md -Raw
+          $heading = [regex]::Match($changelog, "(?m)^## \[$([regex]::Escape($version))\][^\r\n]*").Value
+          if (-not $heading) { throw "CHANGELOG.md has no section for $version" }
+          if ($heading -notmatch ' - \d{4}-\d{2}-\d{2}\s*$') { throw "Set the release date in CHANGELOG.md: '$heading' should end with ' - YYYY-MM-DD'" }
+          $section = [regex]::Match($changelog, "(?ms)^## \[$([regex]::Escape($version))\][^\n]*\n(.*?)(?=^## \[|\z)").Groups[1].Value.Trim()
+          Set-Content -Path release-notes.md -Value $section -Encoding utf8
+
+      - name: Sign the module (when a code signing certificate is configured)
         shell: pwsh
         env:
           CODE_SIGNING_PFX_BASE64: ${{ secrets.CODE_SIGNING_PFX_BASE64 }}
           CODE_SIGNING_PFX_PASSWORD: ${{ secrets.CODE_SIGNING_PFX_PASSWORD }}
         run: |
           $ErrorActionPreference = 'Stop'
-          if (-not $env:CODE_SIGNING_PFX_BASE64) { throw 'CODE_SIGNING_PFX_BASE64 secret is not set: the module must be signed before it is published.' }
+          if (-not $env:CODE_SIGNING_PFX_BASE64) {
+              Write-Host '::warning title=Unsigned module::CODE_SIGNING_PFX_BASE64 is not set, so the module is published without an Authenticode signature.'
+              exit 0
+          }
           $pfxPath = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
           [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:CODE_SIGNING_PFX_BASE64))
           try {
@@ -63,15 +78,19 @@ jobs:
           if ($unsigned) { throw "Signature check failed for: $($unsigned.Path -join ', ')" }
           Write-Host "Signed $($files.Count) files with $($cert.Subject)"
 
-      - name: Check the tag matches the manifest and the changelog
+      - name: Check the package contents
         shell: pwsh
         run: |
-          $version = (Import-PowerShellDataFile "./output/$env:MODULE_NAME/$env:MODULE_NAME.psd1").ModuleVersion
-          if ("v$version" -ne $env:GITHUB_REF_NAME) { throw "Tag $env:GITHUB_REF_NAME does not match ModuleVersion $version" }
-          $changelog = Get-Content ./CHANGELOG.md -Raw
-          $section = [regex]::Match($changelog, "(?ms)^## \[$([regex]::Escape($version))\][^\n]*\n(.*?)(?=^## \[|\z)").Groups[1].Value.Trim()
-          if (-not $section) { throw "CHANGELOG.md has no section for $version" }
-          Set-Content -Path release-notes.md -Value $section -Encoding utf8
+          $ErrorActionPreference = 'Stop'
+          # Pack into a local repository first: what is checked here is exactly what the Gallery gets.
+          $repo = Join-Path $env:RUNNER_TEMP 'localrepo'
+          New-Item -ItemType Directory -Path $repo -Force | Out-Null
+          Register-PSResourceRepository -Name LocalRepo -Uri $repo -Trusted
+          Publish-PSResource -Path "./output/$env:MODULE_NAME" -Repository LocalRepo
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $entries = [IO.Compression.ZipFile]::OpenRead((Get-ChildItem $repo -Filter *.nupkg).FullName).Entries.FullName
+          $entries
+          if ($entries -match '^(\.git|\.github|tests|docs|examples|logs|output)/') { throw 'Package contains repository-only files' }
 
       - name: Publish to the PowerShell Gallery
         shell: pwsh

@@ -30,17 +30,18 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Analyze, test and build
         shell: pwsh
-        run: ./build.ps1 -InstallDependencies
+        # Code coverage is measured once, on Linux, and shown in the run summary.
+        run: ./build.ps1 -InstallDependencies ${{ matrix.os == 'ubuntu-latest' && '-CodeCoverage' || '' }}
 
   windows-powershell:
     name: Windows PowerShell 5.1 and Install-Module
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build and pack into a local repository (PowerShell 7)
         shell: pwsh

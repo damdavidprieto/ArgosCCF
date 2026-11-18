@@ -36,16 +36,20 @@ CI checks both, and PowerShell 7 on Linux and macOS too.
 ## Releasing
 
 The `Publish` workflow runs in the `psgallery` environment, which only accepts `v*` tags and holds
-three secrets:
+these secrets:
 
-| Secret | Contents |
-|---|---|
-| `PSGALLERY_API_KEY` | A PowerShell Gallery API key scoped to this package only |
-| `CODE_SIGNING_PFX_BASE64` | The code signing certificate (.pfx), base64-encoded: `[Convert]::ToBase64String([IO.File]::ReadAllBytes('cert.pfx'))` |
-| `CODE_SIGNING_PFX_PASSWORD` | The password of that .pfx |
+| Secret | Required | Contents |
+|---|---|---|
+| `PSGALLERY_API_KEY` | Yes | A PowerShell Gallery API key scoped to this package only |
+| `CODE_SIGNING_PFX_BASE64` | No | The code signing certificate (.pfx), base64-encoded: `[Convert]::ToBase64String([IO.File]::ReadAllBytes('cert.pfx'))` |
+| `CODE_SIGNING_PFX_PASSWORD` | No | The password of that .pfx |
 
-1. Move the `Unreleased` entries in `CHANGELOG.md` under the new version and update `ModuleVersion`
-   in the manifest.
-2. Push a tag `v<version>`. The workflow checks that the tag matches the manifest, runs the build,
-   signs every `.ps1`, `.psm1` and `.psd1` (and fails unless every signature is valid), publishes
+1. Move the `Unreleased` entries in `CHANGELOG.md` under the new version, with the release date
+   (`## [1.4.0] - 2026-11-20`), and update `ModuleVersion` in the manifest. Merge to `main`.
+2. Push a tag `v<version>` from `main`. The workflow runs the build, checks that the tag matches the
+   manifest and that the changelog section has a date, signs every `.ps1`, `.psm1` and `.psd1` when
+   the certificate is set (and fails unless every signature is valid; without it, it publishes
+   unsigned with a warning), checks that the package holds only runtime files, publishes
    `output/ArgosCCF` to the PowerShell Gallery and creates the GitHub release.
+3. Once the new version is on the Gallery, unlist versions with known vulnerabilities (Manage
+   package on powershellgallery.com) and publish a GitHub security advisory for them.
