@@ -32,11 +32,9 @@ function ConvertTo-CCFLogText {
     param([AllowNull()][AllowEmptyString()][string]$Text)
 
     if ([string]::IsNullOrEmpty($Text)) { return $Text }
-    $clean = $Text -replace '\x1B\][^\x07\x1B]*(\x07|\x1B\\)?', ''
-    $clean = $clean -replace '(\x1B\[|\x9B)[0-?]*[ -/]*[@-~]', ''
-    $clean = $clean -replace '\x1B[@-_]?', ''
-    $clean = $clean -replace "`r", '\r' -replace "`n", '\n' -replace "`t", ' '
-    return ($clean -replace '[\x00-\x1F\x7F-\x9F]', '')
+    # Redaction already removed them from redacted text; this also covers text that was not redacted.
+    $clean = ConvertTo-CCFPrintableText -Text $Text
+    return ($clean -replace "`r", '\r' -replace "`n", '\n' -replace "`t", ' ')
 }
 
 function Test-CCFLogName {

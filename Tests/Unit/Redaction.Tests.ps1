@@ -28,6 +28,20 @@ Describe 'Known formats' {
         @{ Case = 'a Slack token'; Text = 'xoxb-123456789012-abcdefghij'; Secret = 'xoxb-1234'; Expected = '[REDACTED]' }
         @{ Case = 'a Stripe key'; Text = 'key sk_live_abcdefghijklmnop1234'; Secret = 'sk_live_'; Expected = 'key [REDACTED]' }
         @{ Case = 'a private key block'; Text = "x`n-----BEGIN RSA PRIVATE KEY-----`nMIIEowIBAAKCAQEA7bq`n-----END RSA PRIVATE KEY-----`ny"; Secret = 'MIIEow'; Expected = "x`n[REDACTED-PRIVATE-KEY]`ny" }
+        @{ Case = 'a URL password that contains @'; Text = 'https://admin:p@ss@files.example.com/share'; Secret = 'ss@files'; Expected = 'https://admin:[REDACTED]@files.example.com/share' }
+        @{ Case = 'an XML element'; Text = '<User>bob</User><Password>hunter2x</Password>'; Secret = 'hunter2x'; Expected = '<User>bob</User><Password>[REDACTED]</Password>' }
+        @{ Case = 'an XML element with a prefix and attributes'; Text = '<ns:ClientSecret type="s">hunter2x</ns:ClientSecret>'; Secret = 'hunter2x'; Expected = '<ns:ClientSecret type="s">[REDACTED]</ns:ClientSecret>' }
+        @{ Case = 'an XML element with CDATA'; Text = '<pwd><![CDATA[hunter<2x]]></pwd>'; Secret = 'hunter'; Expected = '<pwd>[REDACTED]</pwd>' }
+        @{ Case = 'a PowerShell parameter'; Text = 'New-LocalUser -Name bob -Password hunter2x -Enabled'; Secret = 'hunter2x'; Expected = 'New-LocalUser -Name bob -Password [REDACTED] -Enabled' }
+        @{ Case = 'a parameter with a colon'; Text = 'Connect -ApiKey:hunter2x'; Secret = 'hunter2x'; Expected = 'Connect -ApiKey:[REDACTED]' }
+        @{ Case = 'a double-dash option with a quoted value'; Text = 'tool --token "hunter 2x" --verbose'; Secret = 'hunter'; Expected = 'tool --token [REDACTED] --verbose' }
+        @{ Case = 'ConvertTo-SecureString'; Text = "ConvertTo-SecureString 'hunter2x' -AsPlainText -Force"; Secret = 'hunter2x'; Expected = 'ConvertTo-SecureString [REDACTED] -AsPlainText -Force' }
+        @{ Case = 'a Spanish key'; Text = "contrase$([char]0xF1)a=hunter2x"; Secret = 'hunter2x'; Expected = "contrase$([char]0xF1)a=[REDACTED]" }
+        @{ Case = 'a Spanish key without the tilde'; Text = 'nueva_contrasena: hunter2x'; Secret = 'hunter2x'; Expected = 'nueva_contrasena: [REDACTED]' }
+        @{ Case = 'a short Spanish key'; Text = 'clave=hunter2x'; Secret = 'hunter2x'; Expected = 'clave=[REDACTED]' }
+        @{ Case = 'a German key'; Text = 'Passwort=hunter2x'; Secret = 'hunter2x'; Expected = 'Passwort=[REDACTED]' }
+        @{ Case = 'a French key'; Text = 'mot_de_passe=hunter2x'; Secret = 'hunter2x'; Expected = 'mot_de_passe=[REDACTED]' }
+        @{ Case = 'a Portuguese key'; Text = 'senha=hunter2x'; Secret = 'hunter2x'; Expected = 'senha=[REDACTED]' }
     ) {
         $result = Protect-CCFSensitiveData -InputData $Text
         $result | Should -Not -BeLike "*$Secret*"
@@ -61,8 +75,38 @@ Describe 'Values that are not secrets' {
         @{ Case = 'a WMI class name'; Text = 'Get-CimInstance Win32_OperatingSystem' }
         @{ Case = 'an ordinary sentence'; Text = 'Backup passed 3 of 3 checks; tokenizer finished; design=final' }
         @{ Case = 'a timestamp'; Text = 'User bob signed in from 10.0.0.5 at 2026-11-15T10:00:00Z' }
+        @{ Case = 'switches after a secret parameter name'; Text = 'Get-Thing -PassThru -Verbose; Set-Thing -Token -Force' }
+        @{ Case = 'a boolean parameter value'; Text = 'Set-ADUser bob -PasswordNeverExpires $true' }
+        @{ Case = 'an XML element that is not a secret'; Text = '<User>bob</User><Server>db01</Server>' }
+        @{ Case = 'a URL with an @ in the query'; Text = 'https://example.com/invite?email=bob@example.com' }
+        @{ Case = 'words that contain a short key'; Text = 'autoclave=on; la clave primaria es id; x - pin it' }
     ) {
         Protect-CCFSensitiveData -InputData $Text | Should -BeExactly $Text
+    }
+}
+
+Describe 'Control characters' {
+    BeforeAll {
+        $script:esc = [char]27
+    }
+
+    It 'cannot hide a key with <Case>' -TestCases @(
+        @{ Case = 'an ANSI sequence'; Inside = "$([char]27)[0m" }
+        @{ Case = 'a NUL character'; Inside = [string][char]0 }
+        @{ Case = 'a C1 control sequence'; Inside = "$([char]0x9B)0m" }
+        @{ Case = 'an operating system command'; Inside = "$([char]27)]0;title$([char]7)" }
+    ) {
+        $result = Protect-CCFSensitiveData -InputData "pass${Inside}word=Hunter2Secret"
+        $result | Should -BeExactly 'password=[REDACTED]'
+    }
+
+    It 'removes colors and keeps line breaks and tabs' {
+        Protect-CCFSensitiveData "$esc[31mERROR$esc[0m`tpassword=x1y2z3`nnext" | Should -BeExactly "ERROR`tpassword=[REDACTED]`nnext"
+    }
+
+    It 'checks hashtable keys without their control characters' {
+        $result = Protect-CCFSensitiveData @{ "pass$esc[0mword" = 'Hunter2Secret' }
+        $result.Values | Should -Be '[REDACTED]'
     }
 }
 
@@ -238,6 +282,14 @@ Describe 'Protect-CCFLogFile' {
         $result = Protect-CCFLogFile -Path $file -Destination $file -Force
         $result.InPlace | Should -BeTrue
         Get-Content $file -Raw | Should -Not -Match 'hunter2x'
+    }
+
+    It 'removes colors from a transcript without counting them as redactions' {
+        $esc = [char]27
+        Set-Content -Path $file -Value @("$esc[32mOK$esc[0m step 1", "$esc[31mpass$esc[0mword=hunter2x")
+        $result = Protect-CCFLogFile -Path $file
+        $result.Redactions | Should -Be 1
+        Get-Content $result.Destination | Should -Be @('OK step 1', 'password=[REDACTED]')
     }
 
     It 'writes nothing with -WhatIf' {

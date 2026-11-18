@@ -17,9 +17,12 @@ Write-CCFLogInfo "GET https://admin:S3cret@files.contoso.com with Authorization:
 ```
 
 - **Redaction that knows the formats**: key/value pairs and JSON (`"password": "..."`, values with
-  spaces), connection strings, credentials in URLs, `Authorization` headers, bearer tokens, private key
-  blocks, JSON web tokens, and GitHub, AWS, Slack, Stripe, Google, npm and `sk-` keys. Random-looking
-  strings are caught too, while GUIDs, SIDs, hashes, paths and host names are left alone.
+  spaces, keys in Spanish, German, French, Portuguese and Dutch too), XML elements, command-line
+  parameters (`-Password ...`, `--token ...`, `ConvertTo-SecureString '...'`), connection strings,
+  credentials in URLs, `Authorization` headers, bearer tokens, private key blocks, JSON web tokens,
+  and GitHub, AWS, Slack, Stripe, Google, npm and `sk-` keys. Random-looking strings are caught too,
+  while GUIDs, SIDs, hashes, paths and host names are left alone. Color codes and control
+  characters are removed first, so they cannot hide a secret from the rules.
 - **Your own secrets, wherever they appear**: `Register-CCFSecret` takes the values your script reads
   (or a `PSCredential`) and redacts them in any format, even inside an error message from another
   module. `Register-CCFRedactionPattern` adds formats specific to your organization.
@@ -123,9 +126,9 @@ only from the `Plugins` folder of the installed module, so copy them again after
 .\build.ps1                        # analysis, tests, and the package in output\ArgosCCF
 ```
 
-The repository follows the layout of the [Sampler](https://github.com/gaelcolas/Sampler) module
-template: the package is built from the runtime files only, and the QA tests check that every
-command has complete help, that the code passes PSScriptAnalyzer with
+The build is a single script, without the [Sampler](https://github.com/gaelcolas/Sampler) tooling,
+but it borrows Sampler's quality checks: the package is built from the runtime files only, and the
+QA tests check that every command has complete help, that the code passes PSScriptAnalyzer with
 [`PSScriptAnalyzerSettings.psd1`](PSScriptAnalyzerSettings.psd1) (including Windows PowerShell 5.1
 compatibility) and that the changelog is up to date. The tests write logs to a temporary data folder
 (`$env:CCF_DATA_PATH`), never to yours. CI runs on Windows PowerShell 5.1 and on PowerShell 7 on

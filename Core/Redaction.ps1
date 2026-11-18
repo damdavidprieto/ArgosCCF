@@ -5,10 +5,13 @@
 # its own, so it can sit in front of any other logger or clean files that were already written.
 #
 # Text goes through these steps, in order:
+#   0. ANSI escape sequences and control characters other than line breaks and tabs are removed,
+#      so they cannot hide a key from the rules;
 #   1. values registered with Register-CCFSecret, wherever they appear;
 #   2. built-in rules for known formats (private key blocks, credentials in URLs, Authorization
-#      headers, bearer tokens, connection strings, and GitHub, AWS, Slack, Stripe, Google, npm
-#      and sk- style keys, JSON web tokens);
+#      headers, bearer tokens, connection strings, XML elements, command-line parameters,
+#      ConvertTo-SecureString, and GitHub, AWS, Slack, Stripe, Google, npm and sk- style keys,
+#      JSON web tokens);
 #   3. patterns added with Register-CCFRedactionPattern;
 #   4. key/value pairs whose key names a secret (password=..., "token": "...", api_key: ...);
 #   5. words that look like random secrets (Test-CCFEntropyContent).
@@ -24,8 +27,10 @@ $script:CCFCustomPatterns = [ordered]@{}
 # Key names that mark a secret. Long names may appear inside a longer key (db_password,
 # ClientSecret, x-api-key); short ones only as the whole key, so "design" or "passed" are not
 # matched. Authorization is handled by its own rule in text, which keeps the scheme.
-$script:CCFLongSecretKeys = 'password|passwd|passphrase|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|account[_-]?key|shared[_-]?key|credential|cookie|session[_-]?id|signature|connection[_-]?string'
-$script:CCFShortSecretKeys = 'pwd|pass|pw|pin|sig|sas|pat'
+# Both lists also hold the word for password in other languages (Spanish, German, French,
+# Portuguese, Dutch); \u00f1 in the pattern is the n with tilde of the Spanish word.
+$script:CCFLongSecretKeys = 'password|passwd|passphrase|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|account[_-]?key|shared[_-]?key|credential|cookie|session[_-]?id|signature|connection[_-]?string|contrase(?:\u00f1|n)a|passwort|kennwort|mot[_-]?de[_-]?passe|motdepasse|senha|wachtwoord'
+$script:CCFShortSecretKeys = 'pwd|pass|pw|pin|sig|sas|pat|clave|mdp'
 
 # --- Private helpers ---
 
@@ -60,7 +65,8 @@ $script:CCFBuiltInRules = @(
     @{
         Name        = 'UrlCredentials'
         Description = 'Passwords in URLs (scheme://user:password@host)'
-        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern '\b(?<pre>[a-z][a-z0-9+.-]*://[^\s:/@]+):(?<pw>[^\s@/]+)@'
+        # The password runs to the last '@' before the host, so one that contains '@' is redacted whole.
+        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern '\b(?<pre>[a-z][a-z0-9+.-]*://[^\s:/@]+):(?<pw>[^\s/?#]+)@'
         Replacement = '${pre}:[REDACTED]@'
     }
     @{
@@ -80,6 +86,24 @@ $script:CCFBuiltInRules = @(
         Description = 'Password, Pwd, AccountKey and shared access keys in connection strings (up to the next semicolon, spaces included)'
         Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern '(?:(?<=;)|^(?=[^;]*;))(?<k>\s*(?:password|pwd|accountkey|sharedaccesskey|sharedaccesssignature|sharedsecretvalue|client[_ ]?secret)\s*=)[^;]*'
         Replacement = '${k}[REDACTED]'
+    }
+    @{
+        Name        = 'XmlElement'
+        Description = 'XML elements whose name names a secret (<Password>...</Password>, CDATA included)'
+        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern ('<(?<k>(?:[A-Za-z0-9_.-]+:)?(?:[A-Za-z0-9_.-]*(?:' + $script:CCFLongSecretKeys + ')[A-Za-z0-9_.-]*|(?:' + $script:CCFShortSecretKeys + ')))(?<a>\s[^<>]*)?>(?:<!\[CDATA\[[\s\S]*?\]\]>|[^<]+)</\k<k>\s*>')
+        Replacement = '<${k}${a}>[REDACTED]</${k}>'
+    }
+    @{
+        Name        = 'PlainTextSecureString'
+        Description = 'The text passed to ConvertTo-SecureString (a password typed in a command)'
+        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern '(?<pre>\bConvertTo-SecureString\s+(?:-String\s+)?)(?:"[^"]*"|''[^'']*''|(?!-)[^\s|;)]+)'
+        Replacement = '${pre}[REDACTED]'
+    }
+    @{
+        Name        = 'CommandLineArgument'
+        Description = 'Command-line parameters whose name names a secret (-Password value, --token value, -ApiKey:value); true, false and null are kept'
+        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern ('(?<![A-Za-z0-9_-])(?<k>--?(?:[A-Za-z0-9_-]*(?:' + $script:CCFLongSecretKeys + ')[A-Za-z0-9_-]*|(?:' + $script:CCFShortSecretKeys + ')))(?<sep>:\s*|\s+)(?![-/][A-Za-z]|\$?(?:true|false|null)\b|\[REDACTED)(?:"[^"]*"|''[^'']*''|[^\s"'']+)')
+        Replacement = '${k}${sep}[REDACTED]'
     }
     @{
         Name        = 'JsonWebToken'
@@ -141,6 +165,31 @@ $script:CCFGuidRegex = Get-CCFCompiledRegex -Pattern '^\{?[0-9A-Fa-f]{8}-(?:[0-9
 $script:CCFSidRegex = Get-CCFCompiledRegex -Pattern '^S-1-\d+(?:-\d+)+$'
 $script:CCFHexRegex = Get-CCFCompiledRegex -Pattern '^[0-9A-Fa-f]+$'
 
+# Terminal escape sequences and control characters. They are removed before any rule runs: a
+# sequence inside a key ("pass<ESC>[0mword=...") would otherwise hide it from the rules, and the
+# logger, which removes them afterwards, would then write the secret in clear.
+# Line breaks and tabs are kept here (the logger escapes them).
+$script:CCFOscSequenceRegex = Get-CCFCompiledRegex -Pattern '\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)?'
+$script:CCFCsiSequenceRegex = Get-CCFCompiledRegex -Pattern '(?:\x1B\[|\x9B)[0-?]*[ -/]*[@-~]'
+$script:CCFEscapeRegex = Get-CCFCompiledRegex -Pattern '\x1B[@-_]?'
+$script:CCFControlCharRegex = Get-CCFCompiledRegex -Pattern '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]'
+
+function ConvertTo-CCFPrintableText {
+    <#
+    .SYNOPSIS
+        Removes ANSI escape sequences and control characters, except line breaks and tabs.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()][AllowEmptyString()][string]$Text)
+
+    if ([string]::IsNullOrEmpty($Text)) { return $Text }
+    $clean = $script:CCFOscSequenceRegex.Replace($Text, '')
+    $clean = $script:CCFCsiSequenceRegex.Replace($clean, '')
+    $clean = $script:CCFEscapeRegex.Replace($clean, '')
+    return $script:CCFControlCharRegex.Replace($clean, '')
+}
+
 function Sync-CCFSecretRegex {
     <#
     .SYNOPSIS
@@ -166,7 +215,7 @@ function Invoke-CCFTextRedaction {
 
     if ([string]::IsNullOrEmpty($Text)) { return $Text }
     try {
-        $out = $Text
+        $out = ConvertTo-CCFPrintableText -Text $Text
         if ($null -ne $script:CCFSecretRegex) { $out = $script:CCFSecretRegex.Replace($out, '[REDACTED]') }
 
         foreach ($rule in $script:CCFBuiltInRules) { $out = $rule.Regex.Replace($out, $rule.Replacement) }
@@ -227,7 +276,8 @@ function ConvertTo-CCFRedactedValue {
             # Assigned inside the branches: "$val = if ..." would unroll a one-item array.
             if ($isDictionary) { $val = $InputData[$key] } else { $val = $InputData.$key }
 
-            $isSecret = $script:CCFKeyNameRegex.IsMatch([string]$key) -and -not ($val -is [bool])
+            # The key is checked without control characters, which could otherwise hide its name.
+            $isSecret = $script:CCFKeyNameRegex.IsMatch((ConvertTo-CCFPrintableText -Text ([string]$key))) -and -not ($val -is [bool])
             if (-not $isSecret -and $val -is [string] -and (Test-CCFEntropyContent -String $val)) { $isSecret = $true }
 
             if ($isSecret) { $newData[$key] = '[REDACTED]' }
@@ -313,13 +363,18 @@ function Protect-CCFSensitiveData {
         Returns a copy of the data with passwords, tokens, keys and other secrets replaced by [REDACTED].
 
     .DESCRIPTION
-        Strings are checked, in this order, for values registered with Register-CCFSecret; for
-        private key blocks, passwords in URLs, Authorization headers, bearer tokens and
-        connection strings; for GitHub, AWS, Slack, Stripe, Google, npm and sk- keys and JSON
-        web tokens; for patterns added with Register-CCFRedactionPattern; for key/value pairs
-        whose key names a secret ("password=...", "token: ...", JSON "apiKey": "..."); and for
-        words that look like random secrets (see Test-CCFEntropyContent), which become
-        [REDACTED-ENTROPY]. Get-CCFRedactionPattern lists the rules.
+        ANSI escape sequences and control characters other than line breaks and tabs are
+        removed from strings first, so they cannot hide a key from the rules. Strings are then
+        checked, in this order, for values registered with Register-CCFSecret; for private key
+        blocks, passwords in URLs, Authorization headers, bearer tokens and connection strings;
+        for XML elements (<Password>...</Password>), command-line parameters (-Password value,
+        --token value) and the text passed to ConvertTo-SecureString; for GitHub, AWS, Slack,
+        Stripe, Google, npm and sk- keys and JSON web tokens; for patterns added with
+        Register-CCFRedactionPattern; for key/value pairs whose key names a secret
+        ("password=...", "token: ...", JSON "apiKey": "...", also in Spanish, German, French,
+        Portuguese and Dutch); and for words that look like random secrets (see
+        Test-CCFEntropyContent), which become [REDACTED-ENTROPY]. Get-CCFRedactionPattern lists
+        the rules.
 
         Hashtables and objects are copied: values whose key names a secret (password, token,
         secret, apikey, authorization, cookie, credential...) or that look like secrets become
@@ -618,8 +673,9 @@ function Protect-CCFLogFile {
     .DESCRIPTION
         Reads the file line by line and writes every line through the same rules as
         Protect-CCFSensitiveData. Private key blocks that span several lines are replaced as a
-        whole. Use it on transcripts (Start-Transcript), logs written by other tools, or old
-        logs, before sharing or archiving them.
+        whole. ANSI escape sequences (colors) and control characters are removed from the copy;
+        they are not counted as redactions. Use it on transcripts (Start-Transcript), logs
+        written by other tools, or old logs, before sharing or archiving them.
         By default the copy is written next to the file as <name>.redacted<extension>. To
         overwrite the original, pass it as -Destination as well, with -Force. Returns the source,
         the destination and the number of redactions. Supports -WhatIf and -Confirm.
@@ -693,8 +749,10 @@ function Protect-CCFLogFile {
                     $inKey = $true
                     continue
                 }
-                $clean = Invoke-CCFTextRedaction -Text $line
-                if ($clean -cne $line) { $count += [math]::Max(1, ([regex]::Matches($clean, '\[REDACTED')).Count - ([regex]::Matches($line, '\[REDACTED')).Count) }
+                # Escape sequences (colors in a transcript) are removed but do not count as redactions.
+                $plain = ConvertTo-CCFPrintableText -Text $line
+                $clean = Invoke-CCFTextRedaction -Text $plain
+                if ($clean -cne $plain) { $count += [math]::Max(1, ([regex]::Matches($clean, '\[REDACTED')).Count - ([regex]::Matches($plain, '\[REDACTED')).Count) }
                 $writer.WriteLine($clean)
             }
         }
