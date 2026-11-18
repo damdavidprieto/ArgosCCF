@@ -124,6 +124,7 @@ only from the `Plugins` folder of the installed module, so copy them again after
 ```powershell
 .\build.ps1 -InstallDependencies   # first time: Pester 5 and PSScriptAnalyzer
 .\build.ps1                        # analysis, tests, and the package in output\ArgosCCF
+.\build.ps1 -CodeCoverage          # the same, and the share of code the tests run
 ```
 
 The build is a single script, without the [Sampler](https://github.com/gaelcolas/Sampler) tooling,
@@ -135,7 +136,8 @@ compatibility) and that the changelog is up to date. The tests write logs to a t
 Windows, Linux and macOS, and installs the package with `Install-Module`. Pushing a `v*` tag
 publishes the version to the PowerShell Gallery.
 
-See [CONTRIBUTING](.github/CONTRIBUTING.md), [SECURITY](SECURITY.md) and the [CHANGELOG](CHANGELOG.md).
+See [CONTRIBUTING](.github/CONTRIBUTING.md), the [code of conduct](CODE_OF_CONDUCT.md), [SECURITY](SECURITY.md) and the
+[CHANGELOG](CHANGELOG.md).
 
 ## License
 
