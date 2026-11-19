@@ -129,8 +129,8 @@ For each release, update `ModuleVersion` in the manifest, add an entry to `CHANG
 and tag the commit:
 
 ```powershell
-git tag -a v1.3.0 -m "v1.3.0"
-git push origin v1.3.0
+git tag -a v1.4.0 -m "v1.4.0"
+git push origin v1.4.0
 ```
 
 ## 4. Loading the module

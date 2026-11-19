@@ -32,8 +32,9 @@ configuration, plugin and parallel execution commands keep working but are depre
   logger (for example `Write-PSFMessage`).
 - `Initialize-CCFLogger -Path`: the folder for this session's logs, such as the script's own folder.
 - **Background writing** (optional): with `Initialize-CCFLogger -Background`, log files are written by a
-  background worker, in order and in batches, with the same lock and rotation. `Write-CCFLog` takes
-  about half the time (5.4 to 2.5 ms per entry on PowerShell 7, 5.3 to 2.4 ms on 5.1). ERROR and
+  background worker, in order and in batches, with the same lock and rotation. `Write-CCFLog` returns
+  without waiting for the disk: from 5.4 to 2.5 ms per entry with PowerShell 7 and from 5.3 to 2.4 ms
+  with Windows PowerShell 5.1 on Windows, and from 2.9 to 2.5 ms with PowerShell 7 on Linux. ERROR and
   CRITICAL entries, Security and Audit records and `-NoBuffer` entries still wait until they are on
   disk; the queue (10,000 entries) makes callers wait when full instead of dropping entries; and it
   is written out when PowerShell exits, when the module is removed and on `Stop-CCFLogWriter`.
@@ -176,38 +177,29 @@ configuration, plugin and parallel execution commands keep working but are depre
 
 ## [1.3.0] - 2026-01-21
 
-### 💎 Professional Grade Refactoring (Fase 5)
-#### [ENG]
-- **API Standardization**: Renamed core functions to Microsoft-approved verbs (`Write-CCFLog*`, `Initialize-CCFLogger`, `Protect-CCFSensitiveData`, `Confirm-CCFPluginSignature`).
-- **Backward Compatibility**: Implemented a comprehensive **Alias System** (15+ aliases) ensures zero breaking changes for existing scripts.
-- **Zero-Noise Quality**: Resolved all PSScriptAnalyzer warnings and implemented strong typing across all core parameters.
-- **Resilience Engine**: Added `Test-CCFHealth` API and LogProvider Heartbeat monitoring.
-- **Performance Fine-Tuning**: Migrated Configuration cache to `ConcurrentDictionary` for thread-safety and implemented Path Memoization to reduce I/O overhead.
-
-#### [ESP]
-- **Estandarización de API**: Renombrado de funciones nucleares a verbos aprobados por Microsoft (`Write-CCFLog*`, `Initialize-CCFLogger`, `Protect-CCFSensitiveData`, `Confirm-CCFPluginSignature`).
-- **Retrocompatibilidad**: Implementado un **Sistema de Alias** exhaustivo (15+ alias) que garantiza cero cambios disruptivos en scripts existentes.
-- **Calidad Zero-Noise**: Resueltas todas las advertencias de PSScriptAnalyzer e implementado tipado fuerte en todos los parámetros core.
-- **Motor de Resiliencia**: Añadida la API `Test-CCFHealth` y monitorización de latido (Heartbeat) del LogProvider.
-- **Optimización de Rendimiento**: Migrada la caché de configuración a `ConcurrentDictionary` (thread-safe) e implementada memoización de rutas para reducir latencia de I/O.
-
 ### Added
-- **ArgosCCF Rebranding**: Project renamed from CCF to ArgosCCF.
-- **Parallel Execution Engine**: `Invoke-CCFParallel` for high-performance multi-threading.
-- **Plugin Signature Verification**: Enforce authenticode signatures for plugins.
-- **System Hardening**: Enhanced L5 validation across all core modules.
-- **Entropy Sanitization**: Improved secret detection in logs via `Test-CCFEntropyContent`.
+- The project is renamed from CCF to ArgosCCF.
+- `Invoke-CCFParallel`: parallel execution in runspaces.
+- Plugin signature verification: plugins can be required to have a valid Authenticode signature.
+- `Test-CCFHealth` and a heartbeat for the log provider.
+- Input validation across the core functions.
+- Better detection of random-looking secrets in logs (`Test-CCFEntropyContent`).
 
 ### Changed
-- Directory structure refactored to standard PowerShell module layout.
+- **API standardization**: Renamed core functions to Microsoft-approved verbs (`Write-CCFLog*`, `Initialize-CCFLogger`, `Protect-CCFSensitiveData`, `Confirm-CCFPluginSignature`).
+- **Backward compatibility**: aliases (15+) keep the old names working in existing scripts.
+- **Code quality**: PSScriptAnalyzer warnings resolved and typed parameters across the core functions.
+- **Performance**: the configuration cache uses a `ConcurrentDictionary` (thread-safe) and paths are
+  memoized to reduce I/O.
+- Directory structure refactored to the standard PowerShell module layout.
 - `Get-CCFPath` optimized for security and environment discovery.
-- Logging engine now supports dynamic providers with fallback security.
+- The logging engine supports dynamic providers with a fallback.
 
 ## [1.2.0] - 2025-12-15
 
 ### Added
-- Security hardening (L3/L4) for file operations.
-- Initial Plugin system with basic hooks.
+- Security hardening for file operations.
+- An initial plugin system with basic hooks.
 
 ### Fixed
 - Log rotation issues on Windows Server.
@@ -215,5 +207,5 @@ configuration, plugin and parallel execution commands keep working but are depre
 ## [1.0.0] - 2025-06-01
 
 ### Added
-- Initial release of Cassiel Core Foundation.
+- Initial release, as Cassiel Core Foundation.
 - Basic logging and configuration management.

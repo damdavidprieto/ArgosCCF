@@ -69,7 +69,8 @@ Without `-Path`, logs go to `ArgosCCF\Logs` under `%LOCALAPPDATA%` (`$XDG_DATA_H
 line for a log shipper.
 
 For scripts that log a lot, `Initialize-CCFLogger -Background` writes the files from a background
-worker, so each call takes about half the time. Errors, critical entries and security and audit
+worker, so each call returns without waiting for the disk (from 5.4 to 2.5 ms per entry on Windows,
+2.9 to 2.5 ms on Linux). Errors, critical entries and security and audit
 records still wait until they are on disk, and nothing queued is lost when PowerShell exits.
 
 ### With another logger, or on existing files

@@ -1,5 +1,12 @@
 # Configuration Guide
 
+> **Deprecated.** The configuration commands keep working in 1.x and will be removed in 2.0.0, when
+> ArgosCCF keeps only logging and redaction. For new scripts, use the
+> [Configuration](https://www.powershellgallery.com/packages/Configuration) or
+> [PSFramework](https://www.powershellgallery.com/packages/PSFramework) modules. The files below
+> (`app_settings.json`, the presets) are examples to create; only `Factory/ccf_core.json` ships with
+> the module, and user settings are saved in the per-user data folder (`Get-CCFPath -Target UserConfigs`).
+
 ## Overview
 
 ArgosCCF uses a powerful layered configuration system that merges settings from three sources:
@@ -26,11 +33,17 @@ Configs/
 ├── Factory/          # Default configurations (committed to git)
 │   ├── app_settings.json
 │   └── ccf_core.json
-├── Presets/          # Environment presets (committed to git)
-│   ├── development.json
-│   └── production.json
-└── User/             # Local overrides (gitignored)
-    └── app_settings.json
+└── Presets/          # Environment presets (committed to git)
+    ├── development.json
+    └── production.json
+```
+
+User overrides are not kept in the module folder but in the per-user data folder
+(`Get-CCFPath -Target UserConfigs`), so updating the module keeps them:
+
+```
+<data folder>/Configs/User/
+└── app_settings.json
 ```
 
 ## Creating a Configuration
@@ -81,7 +94,8 @@ Create `Configs/Presets/production.json`:
 
 ### 3. User Configuration
 
-Create `Configs/User/app_settings.json`:
+Save it with `Set-CCFUserConfig -ConfigName app_settings -ConfigObject ...`, or create
+`app_settings.json` in the folder that `Get-CCFPath -Target UserConfigs` returns:
 
 ```json
 {

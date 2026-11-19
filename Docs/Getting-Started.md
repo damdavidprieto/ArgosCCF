@@ -31,7 +31,8 @@ the module keeps them. `Set-CCFLogLevel -Level DEBUG` also logs `Write-CCFLogDeb
 `Initialize-CCFLogger -JsonOutput` writes one JSON object per line.
 
 Scripts that log many entries can add `-Background`: the files are then written by a background
-worker and each `Write-CCFLog` call takes about half the time. Errors, critical entries and security
+worker and each `Write-CCFLog` call returns without waiting for the disk (in our measurements,
+from 5.4 to 2.5 ms per entry on Windows and from 2.9 to 2.5 ms on Linux). Errors, critical entries and security
 and audit records still wait until they are on disk, and the queue is written out when PowerShell
 exits. Call `Wait-CCFLogWriter` before reading or copying the log files.
 
