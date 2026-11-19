@@ -58,6 +58,30 @@ Describe 'Log forging' {
         Write-CCFLog -Message "status $([char]27)[8mhidden$([char]27)[0m" -Category $category
         Should -Invoke -ModuleName ArgosCCF Write-Host -ParameterFilter { $Object -notmatch "\x1B" -and $Object -match 'status hidden' }
     }
+
+    It 'does not let a control character inside a key write the secret to the file (<Case>)' -TestCases @(
+        @{ Case = 'ANSI sequence'; Inside = "$([char]27)[0m" }
+        @{ Case = 'NUL'; Inside = [string][char]0 }
+    ) {
+        Remove-Item $file -ErrorAction SilentlyContinue
+        Write-CCFLog -Message "connecting pass${Inside}word=Hunter2Secret" -Category $category
+        $content = Get-Content $file -Raw
+        $content | Should -Not -Match 'Hunter2Secret'
+        $content | Should -Match 'password=\[REDACTED\]'
+    }
+
+    It 'does not let a control character inside a key write the secret to a JSON file' {
+        Initialize-CCFLogger -FileName 'CCF_ForgeJson.log' -JsonOutput
+        try {
+            $jsonFile = Join-Path $logDir 'CCF_ForgeJson.log'
+            Write-CCFLog -Message 'data' -Data @{ "pass$([char]27)[0mword" = 'Hunter2Secret' }
+            Get-Content $jsonFile -Raw | Should -Not -Match 'Hunter2Secret'
+        }
+        finally {
+            Initialize-CCFLogger
+            Remove-Item (Join-Path $logDir 'CCF_ForgeJson.log') -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 Describe 'Configuration names' {

@@ -1,0 +1,7 @@
+# Every change is reviewed by the maintainer. Changes to the redaction engine, the release
+# workflow and the security documentation need that review even more.
+*                               @damdavidprieto
+/Core/Redaction.ps1             @damdavidprieto
+/.github/workflows/             @damdavidprieto
+/SECURITY.md                    @damdavidprieto
+/Docs/Security.md               @damdavidprieto

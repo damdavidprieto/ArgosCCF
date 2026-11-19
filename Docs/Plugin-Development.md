@@ -1,5 +1,8 @@
 # Plugin development
 
+> **Deprecated.** Plugins keep working in 1.x and will be removed in 2.0.0, when ArgosCCF keeps only
+> logging and redaction. For new code, package reusable scripts as ordinary PowerShell modules.
+
 A plugin is a PowerShell script in the module's `Plugins` folder (or a subfolder of it) that
 `Invoke-CCFPlugin` runs with a hashtable of arguments and whose return value it passes back.
 `Examples/03-Plugins.ps1` creates, runs and removes a plugin end to end.

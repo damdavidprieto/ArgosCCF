@@ -7,21 +7,25 @@ To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 
 Every message and data object passed to `Write-CCFLog` (and the level shortcuts, and the security,
 audit and error records) goes through `Protect-CCFSensitiveData` before it reaches the console, a
-provider, the SIEM provider or a file. Text is checked in this order
-(`Get-CCFRedactionPattern` lists the rules):
+provider, the SIEM provider or a file. ANSI escape sequences and control characters other than
+line breaks and tabs are removed first, so a color code or a NUL inside a key (`pass<ESC>[0mword=`)
+cannot hide it from the rules. Text is then checked in this order (`Get-CCFRedactionPattern` lists
+the rules):
 
 | Step | What is redacted | Example result |
 |---|---|---|
 | 1. Registered values | Every occurrence of a value passed to `Register-CCFSecret` (and its URL-encoded form) | `login failed for [REDACTED]` |
 | 2. Private keys | PEM blocks from `-----BEGIN ... PRIVATE KEY-----` to the END line | `[REDACTED-PRIVATE-KEY]` |
-| 3. URLs | The password in `scheme://user:password@host` | `https://admin:[REDACTED]@host` |
+| 3. URLs | The password in `scheme://user:password@host`, up to the last `@` before the host | `https://admin:[REDACTED]@host` |
 | 4. Authorization | `Authorization` and `Proxy-Authorization` headers; the scheme is kept | `Authorization: Basic [REDACTED]` |
 | 5. Bearer tokens | `Bearer <token>` anywhere | `Bearer [REDACTED]` |
 | 6. Connection strings | `Password`, `Pwd`, `AccountKey` and shared access keys, up to the next `;` (spaces included) | `User Id=sa;Password=[REDACTED];` |
-| 7. Known token formats | JSON web tokens; GitHub (`ghp_`, `github_pat_`...), AWS access key IDs (`AKIA`...), Slack (`xoxb-`...), Stripe (`sk_live_`...), Google (`AIza`...), npm (`npm_`) and `sk-` keys | `token [REDACTED]` |
-| 8. Your patterns | Regular expressions added with `Register-CCFRedactionPattern` | `[REDACTED]` |
-| 9. Key/value pairs | `key=value`, `key: value`, `"key": "value"` and quoted values with spaces, when the key names a secret: password, passwd, passphrase, secret, token, api key, access key, private key, account key, shared key, credential, cookie, session id, signature, connection string (also inside longer keys such as `db_password` or `ClientSecret`), and the exact keys pwd, pass, pw, pin, sig, sas, pat | `{"password":"[REDACTED]"}` |
-| 10. Random-looking words | 20 or more characters mixing upper case, lower case and digits (see `Test-CCFEntropyContent`). GUIDs, SIDs, hashes, paths, URLs and host names are left alone | `key [REDACTED-ENTROPY]` |
+| 7. XML elements | Elements whose name names a secret (the same names as step 11), CDATA included | `<Password>[REDACTED]</Password>` |
+| 8. Commands | Parameters whose name names a secret (`-Password value`, `--token value`, `-ApiKey:value`; `$true`, `$false`, `$null` and a following switch are kept), and the text passed to `ConvertTo-SecureString` | `-Password [REDACTED] -Enabled` |
+| 9. Known token formats | JSON web tokens; GitHub (`ghp_`, `github_pat_`...), AWS access key IDs (`AKIA`...), Slack (`xoxb-`...), Stripe (`sk_live_`...), Google (`AIza`...), npm (`npm_`) and `sk-` keys | `token [REDACTED]` |
+| 10. Your patterns | Regular expressions added with `Register-CCFRedactionPattern` | `[REDACTED]` |
+| 11. Key/value pairs | `key=value`, `key: value`, `"key": "value"` and quoted values with spaces, when the key names a secret: password, passwd, passphrase, secret, token, api key, access key, private key, account key, shared key, credential, cookie, session id, signature, connection string, and the word for password in Spanish (contraseña, contrasena), German (Passwort, Kennwort), French (mot de passe), Portuguese (senha) and Dutch (wachtwoord), also inside longer keys such as `db_password` or `ClientSecret`; and the exact keys pwd, pass, pw, pin, sig, sas, pat, clave, mdp | `{"password":"[REDACTED]"}` |
+| 12. Random-looking words | 20 or more characters mixing upper case, lower case and digits (see `Test-CCFEntropyContent`). GUIDs, SIDs, hashes, paths, URLs and host names are left alone | `key [REDACTED-ENTROPY]` |
 
 Hashtables, objects and arrays are copied and checked recursively: values whose key names a secret
 become `[REDACTED]` (true/false values are kept), `SecureString` values become `[REDACTED]`, and
@@ -69,16 +73,33 @@ Write-Verbose (Protect-CCFSensitiveData $response)
 Protect-CCFLogFile -Path .\transcript.txt          # writes transcript.redacted.txt
 ```
 
-Redaction is a safety net, not a guarantee. A secret that no rule knows, that was not registered and
-that does not look random (for example a long lower-case passphrase after an unrelated word) is not
-detected. Do not log secrets on purpose, and register the ones your script handles.
+### What is not redacted
+
+Redaction is a safety net, not a guarantee. These are known gaps; register the secrets your script
+handles (`Register-CCFSecret`) and do not log secrets on purpose.
+
+- **A secret with nothing around it.** A value that no rule knows, that was not registered and that
+  does not look random, such as a lower-case passphrase after an unrelated word
+  (`connected with correcthorsebattery`), or a short password passed by position
+  (`net use \\srv /user:admin Verano2026`).
+- **Key names the rules do not know**, in English or in other languages (`parola`, `haslo`...). Add
+  them with `Register-CCFRedactionPattern`.
+- **A key split on purpose with a line break**, such as `pass` + line break + `word=value`: line
+  breaks are kept (and logged as `\n`), so the key is not recognized. Control characters and escape
+  sequences are removed before the check, so they cannot do the same.
+- **Over-redaction.** Rules prefer to remove too much: `-PasswordPolicy Strict` and
+  `<PasswordPolicy>Strict</PasswordPolicy>` lose `Strict`, and a URL password that contains `/`, `?`
+  or `#` without being encoded may take the host with it.
+- **Secrets in properties of objects other than hashtables and custom objects** are never written:
+  those objects are logged as their redacted text form, so data in their properties is lost rather
+  than leaked.
 
 ## Log integrity
 
 - **One entry, one line.** Line breaks in messages are written as the text `\n`, and other control
   characters are removed, so a message cannot add fake entries to a log file.
-- **No terminal escape sequences.** ANSI escape sequences are removed, so a message cannot recolor
-  or hide console output.
+- **No terminal escape sequences.** ANSI escape sequences are removed, before redaction, so a message
+  cannot recolor or hide console output, nor hide a secret from the rules.
 - **No lost entries.** Each write locks the file with a named mutex, so runspaces and processes of the
   same user session that log to the same file at the same time neither lose nor interleave entries.
   Files are rotated by size before every write, so a long session cannot fill the disk with one file.

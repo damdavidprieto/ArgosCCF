@@ -69,7 +69,7 @@ Fields that matter:
 }
 ```
 
-ArgosCCF exports 31 functions and 17 aliases this way. The aliases keep older names
+ArgosCCF exports 40 functions and 17 aliases this way. The aliases keep older names
 working (`Log-Info` → `Write-CCFLogInfo`, `Init-CCFLogger` → `Initialize-CCFLogger`)
 while the functions themselves use approved verbs.
 
@@ -129,8 +129,8 @@ For each release, update `ModuleVersion` in the manifest, add an entry to `CHANG
 and tag the commit:
 
 ```powershell
-git tag -a v1.3.0 -m "v1.3.0"
-git push origin v1.3.0
+git tag -a v1.4.0 -m "v1.4.0"
+git push origin v1.4.0
 ```
 
 ## 4. Loading the module
@@ -198,9 +198,13 @@ Invoke-Pester -Path .\Tests -Output Detailed
   into `output/ArgosCCF`. That folder is what gets published, never the repository root.
 - `.github/workflows/ci.yml` runs `build.ps1` on Windows, Linux and macOS (PowerShell 7), and
   on Windows PowerShell 5.1 runs the Pester suite, installs the built package with
-  `Install-Module` from a local repository and checks the module auto-loads.
+  `Install-Module` from a local repository and checks the module auto-loads. On Linux it also
+  measures code coverage (`build.ps1 -CodeCoverage`) and shows it in the run summary. Actions
+  are pinned to a commit SHA; Dependabot proposes updates.
 - `.github/workflows/publish.yml` publishes `output/ArgosCCF` when a `v*` tag is pushed. The
-  API key lives in the `PSGALLERY_API_KEY` repository secret.
+  API key lives in the `PSGALLERY_API_KEY` secret of the `psgallery` environment. The module is
+  Authenticode-signed when a code signing certificate is configured, and the package contents
+  are checked before they reach the Gallery. See [CONTRIBUTING](../.github/CONTRIBUTING.md#releasing).
 
 Never write a Gallery API key in a script or commit it. If one is ever exposed, revoke it
 on powershellgallery.com and create a new one.

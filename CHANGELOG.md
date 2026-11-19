@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.4.0] - 2026-11-14
+## [1.4.0] - 2026-11-19
 
 ArgosCCF is now a secure logging module: secrets are redacted before anything is written. The
 configuration, plugin and parallel execution commands keep working but are deprecated.
@@ -18,6 +18,10 @@ configuration, plugin and parallel execution commands keep working but are depre
   private key blocks, JSON web tokens, and GitHub, AWS access key ID, Slack, Stripe, Google API, npm
   and `sk-` keys. Key/value pairs are also recognized in JSON (`"password": "..."`), with quoted values
   that contain spaces, and inside longer keys (`db_password`, `ClientSecret`, `x-api-key`).
+- **More formats**: XML elements whose name names a secret (`<Password>...</Password>`, CDATA
+  included), command-line parameters (`-Password value`, `--token value`, `-ApiKey:value`), the text
+  passed to `ConvertTo-SecureString`, and the word for password in Spanish (`contraseña`, `clave`),
+  German, French, Portuguese and Dutch.
 - `Register-CCFSecret` and `Unregister-CCFSecret`: values (or the password of a `PSCredential` or a
   `SecureString`) that are redacted wherever they appear, in any format, with their URL-encoded form.
 - `Register-CCFRedactionPattern`, `Unregister-CCFRedactionPattern` and `Get-CCFRedactionPattern`:
@@ -28,8 +32,9 @@ configuration, plugin and parallel execution commands keep working but are depre
   logger (for example `Write-PSFMessage`).
 - `Initialize-CCFLogger -Path`: the folder for this session's logs, such as the script's own folder.
 - **Background writing** (optional): with `Initialize-CCFLogger -Background`, log files are written by a
-  background worker, in order and in batches, with the same lock and rotation. `Write-CCFLog` takes
-  about half the time (5.4 to 2.5 ms per entry on PowerShell 7, 5.3 to 2.4 ms on 5.1). ERROR and
+  background worker, in order and in batches, with the same lock and rotation. `Write-CCFLog` returns
+  without waiting for the disk: from 5.4 to 2.5 ms per entry with PowerShell 7 and from 5.3 to 2.4 ms
+  with Windows PowerShell 5.1 on Windows, and from 2.9 to 2.5 ms with PowerShell 7 on Linux. ERROR and
   CRITICAL entries, Security and Audit records and `-NoBuffer` entries still wait until they are on
   disk; the queue (10,000 entries) makes callers wait when full instead of dropping entries; and it
   is written out when PowerShell exits, when the module is removed and on `Stop-CCFLogWriter`.
@@ -55,6 +60,11 @@ configuration, plugin and parallel execution commands keep working but are depre
 - **Objects**: `PSCredential`, `NetworkCredential` and `SecureString` values in log data are redacted,
   arrays are checked item by item, and other objects are written as their redacted text form instead
   of being serialized with all their properties.
+- **Control characters hid secrets**: messages were redacted before escape sequences and control
+  characters were removed, so `pass<ESC>[0mword=...` or `password<NUL>=...` slipped past the rules and
+  the logger then wrote `password=...` in clear. They are now removed before any rule runs, in log
+  messages, in hashtable keys, in `Protect-CCFSensitiveData` and in `Protect-CCFLogFile`.
+- **URL passwords that contain `@`** were redacted only up to the first `@`.
 - **Log files outside the Logs folder.** `Write-CCFLog -Category` and `Initialize-CCFLogger -FileName`
   became part of a file path without checks, so a value such as `..\..\x` wrote outside `Logs`. They now
   accept only letters, digits, `.`, `-` and `_`.
@@ -123,8 +133,8 @@ configuration, plugin and parallel execution commands keep working but are depre
   positional form still works.
 - Paths use forward slashes, so configuration loading works on Linux and macOS.
 - Tests: the demo scripts in `Tests/Integration` and `Tests/E2E` (which logged results instead of
-  asserting them) were replaced by Pester tests. 52 tests, run in CI on Windows, Linux and macOS
-  (PowerShell 7) and on Windows PowerShell 5.1.
+  asserting them) were replaced by Pester tests. More than 450 tests,
+  run in CI on Windows, Linux and macOS (PowerShell 7) and on Windows PowerShell 5.1.
 - Packaging: `build.ps1` builds `output/ArgosCCF` with only the runtime files, and the `Publish`
   workflow publishes that folder. Version 1.3.0 had been packed from the repository root and included
   `.git`, tests, docs and test plugins. Removed `ArgosCCF.nuspec`, `Core/diagnostic.ps1` and the test
@@ -154,42 +164,42 @@ configuration, plugin and parallel execution commands keep working but are depre
 - Build and CI follow the structure of the Sampler module template: `PSScriptAnalyzerSettings.psd1`
   (with Windows PowerShell 5.1 compatibility rules), QA tests for help, analyzer, changelog and
   manifest, and a `Publish` workflow that also creates the GitHub release.
+- `Protect-CCFSensitiveData` and `Protect-CCFLogFile` remove ANSI escape sequences (colors) and
+  control characters other than line breaks and tabs from the text they return.
+- Publishing: the `Publish` workflow signs the module when the code signing secrets are set, and
+  publishes it unsigned with a warning otherwise. It also checks the package contents and that the
+  changelog section of the version has a release date.
+- CI: code coverage is measured on Linux and shown in the run summary (`build.ps1 -CodeCoverage`).
+  Actions are pinned to a commit.
+- Repository: a code of conduct and code owners; security reports go only through private
+  vulnerability reporting (the issue template that pointed there was replaced by a link).
 - New examples in `Examples/` that run as part of the tests and clean up after themselves.
 
 ## [1.3.0] - 2026-01-21
 
-### 💎 Professional Grade Refactoring (Fase 5)
-#### [ENG]
-- **API Standardization**: Renamed core functions to Microsoft-approved verbs (`Write-CCFLog*`, `Initialize-CCFLogger`, `Protect-CCFSensitiveData`, `Confirm-CCFPluginSignature`).
-- **Backward Compatibility**: Implemented a comprehensive **Alias System** (15+ aliases) ensures zero breaking changes for existing scripts.
-- **Zero-Noise Quality**: Resolved all PSScriptAnalyzer warnings and implemented strong typing across all core parameters.
-- **Resilience Engine**: Added `Test-CCFHealth` API and LogProvider Heartbeat monitoring.
-- **Performance Fine-Tuning**: Migrated Configuration cache to `ConcurrentDictionary` for thread-safety and implemented Path Memoization to reduce I/O overhead.
-
-#### [ESP]
-- **Estandarización de API**: Renombrado de funciones nucleares a verbos aprobados por Microsoft (`Write-CCFLog*`, `Initialize-CCFLogger`, `Protect-CCFSensitiveData`, `Confirm-CCFPluginSignature`).
-- **Retrocompatibilidad**: Implementado un **Sistema de Alias** exhaustivo (15+ alias) que garantiza cero cambios disruptivos en scripts existentes.
-- **Calidad Zero-Noise**: Resueltas todas las advertencias de PSScriptAnalyzer e implementado tipado fuerte en todos los parámetros core.
-- **Motor de Resiliencia**: Añadida la API `Test-CCFHealth` y monitorización de latido (Heartbeat) del LogProvider.
-- **Optimización de Rendimiento**: Migrada la caché de configuración a `ConcurrentDictionary` (thread-safe) e implementada memoización de rutas para reducir latencia de I/O.
-
 ### Added
-- **ArgosCCF Rebranding**: Project renamed from CCF to ArgosCCF.
-- **Parallel Execution Engine**: `Invoke-CCFParallel` for high-performance multi-threading.
-- **Plugin Signature Verification**: Enforce authenticode signatures for plugins.
-- **System Hardening**: Enhanced L5 validation across all core modules.
-- **Entropy Sanitization**: Improved secret detection in logs via `Test-CCFEntropyContent`.
+- The project is renamed from CCF to ArgosCCF.
+- `Invoke-CCFParallel`: parallel execution in runspaces.
+- Plugin signature verification: plugins can be required to have a valid Authenticode signature.
+- `Test-CCFHealth` and a heartbeat for the log provider.
+- Input validation across the core functions.
+- Better detection of random-looking secrets in logs (`Test-CCFEntropyContent`).
 
 ### Changed
-- Directory structure refactored to standard PowerShell module layout.
+- **API standardization**: Renamed core functions to Microsoft-approved verbs (`Write-CCFLog*`, `Initialize-CCFLogger`, `Protect-CCFSensitiveData`, `Confirm-CCFPluginSignature`).
+- **Backward compatibility**: aliases (15+) keep the old names working in existing scripts.
+- **Code quality**: PSScriptAnalyzer warnings resolved and typed parameters across the core functions.
+- **Performance**: the configuration cache uses a `ConcurrentDictionary` (thread-safe) and paths are
+  memoized to reduce I/O.
+- Directory structure refactored to the standard PowerShell module layout.
 - `Get-CCFPath` optimized for security and environment discovery.
-- Logging engine now supports dynamic providers with fallback security.
+- The logging engine supports dynamic providers with a fallback.
 
 ## [1.2.0] - 2025-12-15
 
 ### Added
-- Security hardening (L3/L4) for file operations.
-- Initial Plugin system with basic hooks.
+- Security hardening for file operations.
+- An initial plugin system with basic hooks.
 
 ### Fixed
 - Log rotation issues on Windows Server.
@@ -197,5 +207,5 @@ configuration, plugin and parallel execution commands keep working but are depre
 ## [1.0.0] - 2025-06-01
 
 ### Added
-- Initial release of Cassiel Core Foundation.
+- Initial release, as Cassiel Core Foundation.
 - Basic logging and configuration management.

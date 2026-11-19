@@ -21,12 +21,15 @@ What you expected to happen.
 What actually happened.
 
 ## Error Messages
+<!-- Remove passwords, tokens and keys before pasting logs or transcripts. If a secret was NOT
+     redacted by ArgosCCF, that is a security issue: report it privately (see SECURITY.md), not here.
+     Protect-CCFLogFile writes a redacted copy of a log file. -->
 ```
 Paste any error messages here
 ```
 
 ## Environment
-- **ArgosCCF Version**: [e.g., 1.3.0]
+- **ArgosCCF Version**: [e.g., 1.4.0, from `(Get-Module ArgosCCF -ListAvailable).Version`]
 - **PowerShell Version**: [e.g., 7.4.0]
 - **OS**: [e.g., Windows 11, Ubuntu 22.04]
 

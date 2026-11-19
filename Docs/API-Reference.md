@@ -495,8 +495,9 @@ Protect-CCFLogFile [-Path] <string> [-Destination <string>] [-Force] [-WhatIf] [
 
 Reads the file line by line and writes every line through the same rules as
 Protect-CCFSensitiveData. Private key blocks that span several lines are replaced as a
-whole. Use it on transcripts (Start-Transcript), logs written by other tools, or old
-logs, before sharing or archiving them.
+whole. ANSI escape sequences (colors) and control characters are removed from the copy;
+they are not counted as redactions. Use it on transcripts (Start-Transcript), logs
+written by other tools, or old logs, before sharing or archiving them.
 By default the copy is written next to the file as <name>.redacted<extension>. To
 overwrite the original, pass it as -Destination as well, with -Force. Returns the source,
 the destination and the number of redactions. Supports -WhatIf and -Confirm.
@@ -531,13 +532,18 @@ Returns a copy of the data with passwords, tokens, keys and other secrets replac
 Protect-CCFSensitiveData [-InputData] <Object> [-Depth <int>] [<CommonParameters>]
 ```
 
-Strings are checked, in this order, for values registered with Register-CCFSecret; for
-private key blocks, passwords in URLs, Authorization headers, bearer tokens and
-connection strings; for GitHub, AWS, Slack, Stripe, Google, npm and sk- keys and JSON
-web tokens; for patterns added with Register-CCFRedactionPattern; for key/value pairs
-whose key names a secret ("password=...", "token: ...", JSON "apiKey": "..."); and for
-words that look like random secrets (see Test-CCFEntropyContent), which become
-[REDACTED-ENTROPY]. Get-CCFRedactionPattern lists the rules.
+ANSI escape sequences and control characters other than line breaks and tabs are
+removed from strings first, so they cannot hide a key from the rules. Strings are then
+checked, in this order, for values registered with Register-CCFSecret; for private key
+blocks, passwords in URLs, Authorization headers, bearer tokens and connection strings;
+for XML elements (<Password>...</Password>), command-line parameters (-Password value,
+--token value) and the text passed to ConvertTo-SecureString; for GitHub, AWS, Slack,
+Stripe, Google, npm and sk- keys and JSON web tokens; for patterns added with
+Register-CCFRedactionPattern; for key/value pairs whose key names a secret
+("password=...", "token: ...", JSON "apiKey": "...", also in Spanish, German, French,
+Portuguese and Dutch); and for words that look like random secrets (see
+Test-CCFEntropyContent), which become [REDACTED-ENTROPY]. Get-CCFRedactionPattern lists
+the rules.
 
 Hashtables and objects are copied: values whose key names a secret (password, token,
 secret, apikey, authorization, cookie, credential...) or that look like secrets become

@@ -217,7 +217,7 @@ function Get-CCFPlugin {
                 }
             }
             catch {
-                Write-CCFLogWarn "Error al cargar manifiesto en $($file.Name): $($_.Exception.Message)"
+                Write-CCFLogWarn "Could not read the plugin manifest $($file.Name): $($_.Exception.Message)"
             }
         }
 
