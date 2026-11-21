@@ -17,7 +17,9 @@ function Invoke-CCFParallel {
         the second. It runs in a separate runspace: it cannot see your variables or functions,
         and is rebuilt from its text, so pass everything it needs as arguments.
         A failure in one object does not stop the others; with -RetryCount it is retried after
-        -RetryDelayMs. -OnProgress is called in your session after each object finishes.
+        -RetryDelayMs. Errors written with Write-Error count as failures too (the script block
+        runs with $ErrorActionPreference = 'Stop'). Retries is the number of retries made.
+        -OnProgress is called in your session after each object finishes.
 
     .PARAMETER ScriptBlock
         Code to run for each object. Receives ($inputObject, $arguments).
@@ -79,9 +81,8 @@ function Invoke-CCFParallel {
     )
 
     $totalTimer = [System.Diagnostics.Stopwatch]::StartNew()
-    Write-CCFLogInfo "Starting parallel execution (threads: $MaxThreads, retries: $RetryCount)"
-
     if ($MaxThreads -lt 2) { $MaxThreads = 2 }
+    Write-CCFLogInfo "Starting parallel execution (threads: $MaxThreads, retries: $RetryCount)"
 
     $rsPool = [runspacefactory]::CreateRunspacePool(1, $MaxThreads)
     $rsPool.Open()
@@ -99,20 +100,23 @@ function Invoke-CCFParallel {
         param($obj, $Params, $sbText, $tries, $delayMs)
         $sb = [scriptblock]::Create($sbText)
         $timer = [System.Diagnostics.Stopwatch]::StartNew()
-        $currentTry = 0
         $success = $false
         $output = $null
         $lastError = $null
 
-        while ($currentTry -le $tries -and -not $success) {
+        # Errors written with Write-Error (non-terminating) also count as a failure: otherwise a
+        # script block that only reports errors would be returned as Success.
+        $ErrorActionPreference = 'Stop'
+        $attempt = 0
+        while ($attempt -le $tries -and -not $success) {
+            if ($attempt -gt 0) { Start-Sleep -Milliseconds $delayMs }
             try {
                 $output = & $sb $obj $Params
                 $success = $true
             }
             catch {
                 $lastError = $_.Exception.Message
-                $currentTry++
-                if ($currentTry -le $tries) { Start-Sleep -Milliseconds $delayMs }
+                $attempt++
             }
         }
         $timer.Stop()
@@ -121,7 +125,8 @@ function Invoke-CCFParallel {
             Duration = $timer.Elapsed.TotalSeconds
             Success  = $success
             Error    = $lastError
-            Retries  = $currentTry
+            # Retries made: failed attempts before the success, or every retry when it never succeeded.
+            Retries  = if ($success) { $attempt } else { $attempt - 1 }
         }
     }
 
@@ -166,7 +171,18 @@ function Invoke-CCFParallel {
                     }
                 }
                 catch {
+                    # The object still gets a result: the output has one entry per input.
                     Write-CCFLogError "Runspace failed for $($job.Target): $($_.Exception.Message)"
+                    $finalResults.Add([PSCustomObject]@{
+                            Index    = $job.Index
+                            Target   = $job.Target
+                            Output   = $null
+                            Duration = 0
+                            Status   = 'Failed'
+                            Retries  = 0
+                            Error    = $_.Exception.Message
+                        })
+                    $processedCount++
                 }
                 finally {
                     $job.PowerShell.Dispose()

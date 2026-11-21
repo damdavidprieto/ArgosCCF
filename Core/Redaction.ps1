@@ -320,6 +320,9 @@ function Protect-CCFSensitiveData {
         whose key names a secret ("password=...", "token: ...", JSON "apiKey": "..."); and for
         words that look like random secrets (see Test-CCFEntropyContent), which become
         [REDACTED-ENTROPY]. Get-CCFRedactionPattern lists the rules.
+        An unquoted value ends at the first space, comma or semicolon (connection strings
+        excepted): in "password: my pass phrase" only "my" is redacted. Quote values that can
+        contain spaces, or register them with Register-CCFSecret.
 
         Hashtables and objects are copied: values whose key names a secret (password, token,
         secret, apikey, authorization, cookie, credential...) or that look like secrets become

@@ -119,6 +119,43 @@ function Invoke-CCFPluginCode {
     return $result
 }
 
+function Test-CCFSignedPluginsRequired {
+    <#
+    .SYNOPSIS
+        True when any configuration layer sets Security.RequireSignedPlugins to true.
+    .DESCRIPTION
+        Get-CCFConfig merges the layers and the last one wins, and the user layer lives in the data
+        folder, which any program running as the user can write. A security setting must not be
+        switched off from there when an administrator switched it on in the module folder, so every
+        layer is read and the check is required as soon as one of them asks for it.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+
+    $merged = Get-CCFConfig -ConfigName 'ccf_core'
+    if ($merged -and $merged.Security.RequireSignedPlugins -eq $true) { return $true }
+
+    $configRoot = Get-CCFPath -Target 'Configs'
+    $layers = @(
+        (Join-Path (Join-Path $configRoot 'Factory') 'ccf_core.json')
+        (Join-Path (Join-Path $configRoot 'User') 'ccf_core.json')
+        (Join-Path (Get-CCFPath -Target 'UserConfigs') 'ccf_core.json')
+    )
+    foreach ($layer in $layers) {
+        if (-not (Test-Path -LiteralPath $layer)) { continue }
+        try {
+            if ((Read-CCFJsonFile -Path $layer).Security.RequireSignedPlugins -eq $true) { return $true }
+        }
+        catch {
+            # A layer that cannot be read may be the one that enables the check: fail closed.
+            Write-CCFLogWarn "Could not read $layer to check RequireSignedPlugins; signatures are required."
+            return $true
+        }
+    }
+    return $false
+}
+
 # --- Public commands ---
 
 function Confirm-CCFPluginSignature {
@@ -258,6 +295,9 @@ function Invoke-CCFPlugin {
         2. When RequireSignedPlugins is enabled in the ccf_core configuration, the plugin must
            have a valid Authenticode signature. The signature is checked on the same bytes
            that are then run, so the file cannot be swapped between check and execution.
+           The setting can be enabled in any layer (factory, module or user settings), and a
+           later layer cannot disable it: the user settings are in the data folder, which any
+           program running as the user can change.
         Then it runs the plugin's Before-Execute function (if defined), the plugin script with
         -Arguments, and its After-Execute function with the result, and returns the result.
         With -HardenedMode the plugin and its hooks run in a new restricted runspace in
@@ -310,10 +350,8 @@ function Invoke-CCFPlugin {
     # Read once: the bytes that are checked are the bytes that run.
     $pluginFile = Read-CCFPluginFile -Path ([System.IO.Path]::GetFullPath($Plugin.Path))
 
-    # 2. Signature
-    $requireSigned = $false
-    $coreConfig = Get-CCFConfig -ConfigName 'ccf_core'
-    if ($coreConfig) { $requireSigned = $coreConfig.Security.RequireSignedPlugins -eq $true }
+    # 2. Signature. Once any configuration layer enables it, no later layer can disable it.
+    $requireSigned = Test-CCFSignedPluginsRequired
 
     if ($requireSigned) {
         $sigResult = Get-CCFSignatureStatus -Path $Plugin.Path -Content $pluginFile.Bytes
@@ -344,7 +382,11 @@ function Invoke-CCFPlugin {
                 }, $false)
             if ($fn) {
                 $body = $fn.Body.Extent.Text.Trim()
-                $hooks[$name] = $body.Substring(1, $body.Length - 2)
+                $text = $body.Substring(1, $body.Length - 2)
+                # "function Before-Execute($Arguments) { ... }" declares its parameters outside the
+                # body; without them the hook would not receive -Arguments or -Result.
+                if ($fn.Parameters) { $text = 'param(' + (($fn.Parameters | ForEach-Object { $_.Extent.Text }) -join ', ') + ")`n" + $text }
+                $hooks[$name] = $text
             }
         }
     }
