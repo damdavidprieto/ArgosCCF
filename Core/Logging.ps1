@@ -850,11 +850,18 @@ function Write-CCFLog {
         $text = $outMsg + [Environment]::NewLine
 
         # Background writing: queue the line; entries that must not be lost wait until they are on disk.
+        # Audit and Security records, and errors, must not be lost without anyone noticing.
+        $mustReport = $Category -eq 'Security' -or $Category -eq 'Audit' -or $script:LogLevels[$Level] -ge 3
         $queued = $false
         if ($null -ne $script:CCFWriter) {
+            $writer = $script:CCFWriter
+            $failedBefore = $writer.Status.Failed
             $queued = Add-CCFQueuedLogText -Path $targetFile -Text $text
-            if ($queued -and ($NoBuffer -or $script:LogLevels[$Level] -ge 3 -or $Category -eq 'Security' -or $Category -eq 'Audit')) {
+            if ($queued -and ($NoBuffer -or $mustReport)) {
                 Wait-CCFLogWriter -TimeoutSeconds 10
+                if ($mustReport -and $writer.Status.Failed -gt $failedBefore) {
+                    Write-Warning "ArgosCCF: a $Category $Level entry could not be written to ${targetFile}: $($writer.Status.LastError)"
+                }
             }
         }
         if (-not $queued) {
@@ -862,8 +869,10 @@ function Write-CCFLog {
                 Add-CCFLogText -Path $targetFile -Text $text -MaxMB $script:MaxLogSizeMB -MaxRolling $script:MaxLogRolling
             }
             catch {
-                # Never log a failure to log: it would recurse.
-                Write-Verbose "Could not write to ${targetFile}: $($_.Exception.Message)"
+                # Never log a failure to log (it would recurse); warn on the console instead.
+                $message = "Could not write to ${targetFile}: $($_.Exception.Message)"
+                if ($mustReport) { Write-Warning "ArgosCCF: a $Category $Level entry was not saved. $message" }
+                else { Write-Verbose $message }
             }
         }
     }
@@ -1203,7 +1212,7 @@ function Remove-CCFOldLog {
         Age in days of the newest files to keep. Defaults to 30.
 
     .PARAMETER CompressBeforeDelete
-        Zip the files before deleting them.
+        Zip the files before deleting them. If compressing is declined or fails, nothing is deleted.
 
     .EXAMPLE
         Remove-CCFOldLog -DaysToKeep 30 -CompressBeforeDelete
@@ -1230,9 +1239,20 @@ function Remove-CCFOldLog {
             Where-Object { $_.Name -match '\.log(\.\d+)?$' -and $_.LastWriteTime -lt $cutoff })
     if ($oldFiles.Count -eq 0) { return [string[]]@() }
 
-    if ($CompressBeforeDelete -and $PSCmdlet.ShouldProcess($logDir, "Compress $($oldFiles.Count) log file(s)")) {
-        $archive = Join-Path $logDir ('CCF_Archive_{0}.zip' -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
-        Compress-Archive -LiteralPath $oldFiles.FullName -DestinationPath $archive -Force
+    if ($CompressBeforeDelete) {
+        # The files are only deleted once they are safely in the archive: if compressing is declined
+        # or fails, nothing is deleted.
+        if (-not $PSCmdlet.ShouldProcess($logDir, "Compress $($oldFiles.Count) log file(s)")) {
+            if (-not $WhatIfPreference) { return [string[]]@() }
+        }
+        else {
+            $archive = Join-Path $logDir ('CCF_Archive_{0}.zip' -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
+            try { Compress-Archive -LiteralPath $oldFiles.FullName -DestinationPath $archive -Force -ErrorAction Stop }
+            catch {
+                Write-CCFLogError "Old logs were not deleted because they could not be compressed: $($_.Exception.Message)"
+                return [string[]]@()
+            }
+        }
     }
 
     $removed = foreach ($file in $oldFiles) {

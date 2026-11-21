@@ -375,7 +375,9 @@ The script block receives the input object as its first argument and -Arguments 
 the second. It runs in a separate runspace: it cannot see your variables or functions,
 and is rebuilt from its text, so pass everything it needs as arguments.
 A failure in one object does not stop the others; with -RetryCount it is retried after
--RetryDelayMs. -OnProgress is called in your session after each object finishes.
+-RetryDelayMs. Errors written with Write-Error count as failures too (the script block
+runs with $ErrorActionPreference = 'Stop'). Retries is the number of retries made.
+-OnProgress is called in your session after each object finishes.
 
 | Parameter | Description |
 |---|---|
@@ -423,6 +425,9 @@ Checks, in order:
 2. When RequireSignedPlugins is enabled in the ccf_core configuration, the plugin must
 have a valid Authenticode signature. The signature is checked on the same bytes
 that are then run, so the file cannot be swapped between check and execution.
+The setting can be enabled in any layer (factory, module or user settings), and a
+later layer cannot disable it: the user settings are in the data folder, which any
+program running as the user can change.
 Then it runs the plugin's Before-Execute function (if defined), the plugin script with
 -Arguments, and its After-Execute function with the result, and returns the result.
 With -HardenedMode the plugin and its hooks run in a new restricted runspace in
@@ -538,6 +543,9 @@ web tokens; for patterns added with Register-CCFRedactionPattern; for key/value 
 whose key names a secret ("password=...", "token: ...", JSON "apiKey": "..."); and for
 words that look like random secrets (see Test-CCFEntropyContent), which become
 [REDACTED-ENTROPY]. Get-CCFRedactionPattern lists the rules.
+An unquoted value ends at the first space, comma or semicolon (connection strings
+excepted): in "password: my pass phrase" only "my" is redacted. Quote values that can
+contain spaces, or register them with Register-CCFSecret.
 
 Hashtables and objects are copied: values whose key names a secret (password, token,
 secret, apikey, authorization, cookie, credential...) or that look like secrets become
@@ -756,7 +764,7 @@ The alias Remove-OldCCFLogs is kept for older scripts.
 | Parameter | Description |
 |---|---|
 | `-DaysToKeep` | Age in days of the newest files to keep. Defaults to 30. |
-| `-CompressBeforeDelete` | Zip the files before deleting them. |
+| `-CompressBeforeDelete` | Zip the files before deleting them. If compressing is declined or fails, nothing is deleted. |
 
 **Example 1**
 

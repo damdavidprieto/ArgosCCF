@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **`RequireSignedPlugins` can no longer be switched off from the user settings.** The configuration
+  layers are merged and the last one wins, and the user layer lives in the data folder, which any
+  program running as the user can write. Once any layer (factory, module or user settings) enables the
+  check, a later layer cannot disable it; a layer that cannot be read counts as enabling it.
+
+### Fixed
+- **`Remove-CCFOldLog -CompressBeforeDelete` could delete logs that were never archived.** A failed
+  `Compress-Archive` only wrote an error and the files were deleted anyway, and declining the
+  compression with `-Confirm` still deleted them. Nothing is deleted now unless the archive was written.
+- **Audit and Security entries that cannot be written warn on the console.** A failed write was only
+  reported with `Write-Verbose`, so audit records could be lost without anyone noticing. Audit and
+  Security entries, and errors, now produce a warning (also with the background writer).
+- **`Invoke-CCFParallel`**: errors written with `Write-Error` count as failures instead of returning
+  `Success`; an object whose runspace fails gets a `Failed` result instead of disappearing from the
+  output; `Retries` is the number of retries made (it counted the attempts); the thread count in the
+  log is the one actually used.
+- **Plugin hooks declared as `function Before-Execute($Arguments)`** (parameters after the name)
+  did not receive `-Arguments` or `-Result`.
+- The help of `Protect-CCFSensitiveData` now says that an unquoted value ends at the first space,
+  comma or semicolon.
+
 ## [1.4.0] - 2026-11-14
 
 ArgosCCF is now a secure logging module: secrets are redacted before anything is written. The
