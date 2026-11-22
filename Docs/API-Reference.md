@@ -1031,7 +1031,7 @@ Lists the checks that failed.
 Checks that nobody has changed, inserted or deleted lines of a log written with Initialize-CCFLogger -Chain.
 
 ```powershell
-Test-CCFLogChain [-Path] <string> [[-ExpectedLastHash] <string>] [-IncludeRotated] [<CommonParameters>]
+Test-CCFLogChain [-Path] <string> [[-ExpectedLastHash] <string[]>] [-IncludeRotated] [<CommonParameters>]
 ```
 
 Recomputes the hash of every chained line from the one before. Returns Path, Entries (chained lines),
@@ -1046,7 +1046,7 @@ copy kept elsewhere (-ExpectedLastHash).
 |---|---|
 | `-Path` | The log file, for example the path of CCF_Audit.log. |
 | `-IncludeRotated` | Also check the rotated copies and the link between them. |
-| `-ExpectedLastHash` | A last hash saved earlier (Get-CCFLogChainHead). If the chain no longer contains it, lines were deleted or the log was rewritten. |
+| `-ExpectedLastHash` | Last hashes saved earlier (Get-CCFLogChainHead), one or several. If the chain no longer contains any of them, lines were deleted or the log was rewritten. With hashes saved over time, a forged later copy cannot hide that an earlier one is gone. |
 
 **Example 1**
 

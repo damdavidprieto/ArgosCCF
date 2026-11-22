@@ -70,6 +70,8 @@ Describe 'Chained logs' {
         $r = Test-CCFLogChain -Path $log -ExpectedLastHash $head
         $r.Valid | Should -BeFalse
         $r.Reason | Should -Match 'deleted'
+        (Test-CCFLogChain -Path $log -ExpectedLastHash @((Get-CCFLogChainHead -Path $log), $head)).Valid | Should -BeFalse
+        (Test-CCFLogChain -Path $log -ExpectedLastHash @((Get-CCFLogChainHead -Path $log))).Valid | Should -BeTrue
     }
 
     It 'continues the chain across rotation' {

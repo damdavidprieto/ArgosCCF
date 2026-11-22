@@ -266,8 +266,9 @@ function Test-CCFLogChain {
         Also check the rotated copies and the link between them.
 
     .PARAMETER ExpectedLastHash
-        A last hash saved earlier (Get-CCFLogChainHead). If the chain no longer contains it, lines were deleted
-        or the log was rewritten.
+        Last hashes saved earlier (Get-CCFLogChainHead), one or several. If the chain no longer contains any of
+        them, lines were deleted or the log was rewritten. With hashes saved over time, a forged later copy
+        cannot hide that an earlier one is gone.
 
     .EXAMPLE
         Test-CCFLogChain -Path (Join-Path (Get-CCFPath -Target Logs) 'CCF_Audit.log') -IncludeRotated
@@ -279,7 +280,7 @@ function Test-CCFLogChain {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [switch]$IncludeRotated,
-        [string]$ExpectedLastHash
+        [string[]]$ExpectedLastHash
     )
     $files = @()
     if ($IncludeRotated) {
@@ -312,7 +313,8 @@ function Test-CCFLogChain {
             $result.Entries++
         }
     }
-    if ($ExpectedLastHash -and -not $seen.ContainsKey($ExpectedLastHash)) {
+    $missing = @($ExpectedLastHash | Where-Object { $_ -and -not $seen.ContainsKey($_) })
+    if ($missing.Count) {
         $result.Valid = $false; $result.Reason = 'The saved last hash is no longer in the log: lines were deleted or the log was rewritten.'
     }
     return [pscustomobject]$result
