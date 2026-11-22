@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-22
+
 ### Security
 - **`RequireSignedPlugins` can no longer be switched off from the user settings.** The configuration
   layers are merged and the last one wins, and the user layer lives in the data folder, which any
