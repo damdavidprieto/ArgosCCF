@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-22
+
+### Added
+- **Tamper-evident logs**: `Initialize-CCFLogger -Chain Audit, Security` ends every line of those categories with
+  a SHA-256 of the line and of the previous hash (` #chain=<hex>`, or a `Chain` property in JSON mode). The
+  hash is computed inside the file lock, so concurrent writers chain in write order, and it continues across
+  rotation. Chained entries are always written directly, also with `-Background`.
+- **`Test-CCFLogChain`**: finds a line that was changed, inserted or deleted (`-IncludeRotated` checks the
+  rotated copies too). **`Get-CCFLogChainHead`** returns the last hash to keep elsewhere; with
+  `Test-CCFLogChain -ExpectedLastHash` it also shows lines deleted from the end.
+
 ## [1.4.1] - 2026-11-22
 
 ### Security

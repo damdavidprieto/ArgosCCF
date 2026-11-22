@@ -6,6 +6,7 @@ Generated from the comment-based help by `Docs/New-ApiReference.ps1`. In PowerSh
 |---|---|
 | [`Confirm-CCFPluginSignature`](#confirm-ccfpluginsignature) | Checks whether a plugin file has a valid Authenticode signature. |
 | [`Get-CCFConfig`](#get-ccfconfig) | Loads a configuration by name, merging the factory, preset and user layers. |
+| [`Get-CCFLogChainHead`](#get-ccflogchainhead) | The last chain hash of a log, to keep where the log's writer cannot change it. |
 | [`Get-CCFLogWriter`](#get-ccflogwriter) | Shows whether log files are written in the background and how many entries are waiting, written or failed. |
 | [`Get-CCFPath`](#get-ccfpath) | Returns the full path of one of the ArgosCCF folders. |
 | [`Get-CCFPlugin`](#get-ccfplugin) | Lists the plugins in the Plugins folder (or another folder) with their metadata. |
@@ -30,6 +31,7 @@ Generated from the comment-based help by `Docs/New-ApiReference.ps1`. In PowerSh
 | [`Test-CCFConfigSchema`](#test-ccfconfigschema) | Validates a configuration object against a simple schema and fills in defaults. |
 | [`Test-CCFEntropyContent`](#test-ccfentropycontent) | Tests whether a string looks like a random secret, such as an API key or a token. |
 | [`Test-CCFHealth`](#test-ccfhealth) | Checks that the ArgosCCF components are loaded and that the Logs folder is writable. |
+| [`Test-CCFLogChain`](#test-ccflogchain) | Checks that nobody has changed, inserted or deleted lines of a log written with Initialize-CCFLogger -Chain. |
 | [`Unregister-CCFRedactionPattern`](#unregister-ccfredactionpattern) | Removes a pattern added with Register-CCFRedactionPattern. |
 | [`Unregister-CCFSecret`](#unregister-ccfsecret) | Removes values registered with Register-CCFSecret. |
 | [`Wait-CCFLogWriter`](#wait-ccflogwriter) | Waits until every log entry queued so far has been written to disk. |
@@ -140,6 +142,32 @@ Get-CCFConfig -ConfigName 'demo_app' -ActivePresets 'Production' -ForceRefresh
 ```
 
 Reloads demo_app with the Production preset applied.
+
+## Get-CCFLogChainHead
+
+The last chain hash of a log, to keep where the log's writer cannot change it.
+
+```powershell
+Get-CCFLogChainHead [-Path] <string> [<CommonParameters>]
+```
+
+Returns the hash of the last chained line (of the newest rotated copy when the log was just rotated),
+or $null when the log has no chained lines. Keep it somewhere the program that writes the log cannot
+change: another machine, an event log, a message. Test-CCFLogChain -ExpectedLastHash then shows whether
+lines were deleted from the end afterwards, which the chain alone cannot show.
+
+| Parameter | Description |
+|---|---|
+| `-Path` | The log file. |
+
+**Example 1**
+
+```powershell
+$head = Get-CCFLogChainHead -Path $auditLog
+Test-CCFLogChain -Path $auditLog -ExpectedLastHash $head
+```
+
+Saves the head now and later checks that no line was removed since.
 
 ## Get-CCFLogWriter
 
@@ -303,7 +331,7 @@ Moves the logs and user settings of this session to D:\AppData\Backup.
 Sets the log file for the session and rotates it when it is too large.
 
 ```powershell
-Initialize-CCFLogger [[-FileName] <string>] [[-Path] <string>] [[-MaxMB] <int>] [[-MaxRolling] <int>] [-JsonOutput] [-Background] [<CommonParameters>]
+Initialize-CCFLogger [[-FileName] <string>] [[-Path] <string>] [[-MaxMB] <int>] [[-MaxRolling] <int>] [[-Chain] <string[]>] [-JsonOutput] [-Background] [<CommonParameters>]
 ```
 
 Until this runs, Write-CCFLog writes System messages to the console only. Afterwards
@@ -324,8 +352,16 @@ CCF_<Category>.log file in the same folder.
 | `-MaxRolling` | Number of rotated files to keep. Defaults to 5. |
 | `-JsonOutput` | Write each entry as one JSON object per line (including Data), instead of plain text. |
 | `-Background` | Write log files from a background worker, so Write-CCFLog returns without waiting for the disk. Entries keep their order and are written in batches with the same lock and rotation. The queue holds 10,000 entries; when it is full, Write-CCFLog waits, so no entry is dropped. ERROR and CRITICAL entries, Security and Audit records and entries logged with -NoBuffer wait until they are in the file. The queue is written out when PowerShell exits normally, when the module is removed, by Stop-CCFLogWriter and when Initialize-CCFLogger runs again without -Background; entries still queued when the process is killed are lost. See Get-CCFLogWriter and Wait-CCFLogWriter. |
+| `-Chain` | Categories whose log files are tamper-evident, for example 'Audit' and 'Security': every line ends with a hash of itself and of the line before, so Test-CCFLogChain finds a line that was changed, inserted or deleted. Use the category name, or 'System' for the session file. These entries are always written directly, also with -Background. |
 
 **Example 1**
+
+```powershell
+Initialize-CCFLogger -Chain Audit, Security
+Audit and Security records can be checked later with Test-CCFLogChain.
+```
+
+**Example 2**
 
 ```powershell
 Initialize-CCFLogger -FileName 'Backup.log' -MaxMB 20
@@ -333,7 +369,7 @@ Initialize-CCFLogger -FileName 'Backup.log' -MaxMB 20
 
 Logs to Backup.log, rotated at 20 MB.
 
-**Example 2**
+**Example 3**
 
 ```powershell
 Initialize-CCFLogger -JsonOutput
@@ -341,7 +377,7 @@ Initialize-CCFLogger -JsonOutput
 
 Logs JSON lines to CCF_Session.log, for collection by a log shipper.
 
-**Example 3**
+**Example 4**
 
 ```powershell
 Initialize-CCFLogger -Path (Join-Path $PSScriptRoot 'logs') -FileName 'Deploy.log'
@@ -349,7 +385,7 @@ Initialize-CCFLogger -Path (Join-Path $PSScriptRoot 'logs') -FileName 'Deploy.lo
 
 Writes this script's logs, and its Security and Audit records, next to the script.
 
-**Example 4**
+**Example 5**
 
 ```powershell
 Initialize-CCFLogger -FileName 'Import.log' -Background
@@ -989,6 +1025,36 @@ Test-CCFHealth | Select-Object -ExpandProperty Checks | Where-Object { -not $_.P
 ```
 
 Lists the checks that failed.
+
+## Test-CCFLogChain
+
+Checks that nobody has changed, inserted or deleted lines of a log written with Initialize-CCFLogger -Chain.
+
+```powershell
+Test-CCFLogChain [-Path] <string> [[-ExpectedLastHash] <string[]>] [-IncludeRotated] [<CommonParameters>]
+```
+
+Recomputes the hash of every chained line from the one before. Returns Path, Entries (chained lines),
+Valid, BrokenAt (the first line number that does not match, or $null), Reason and LastHash. Lines written
+before the chain was enabled are skipped; an unchained line after a chained one breaks the chain.
+With -IncludeRotated the rotated copies (.N down to .1) are checked first and the chain must run across
+them from the start; otherwise the first chained line of the file is taken as given, because the line
+before it is in a rotated copy. Deleting the last lines is not visible here: compare LastHash with a
+copy kept elsewhere (-ExpectedLastHash).
+
+| Parameter | Description |
+|---|---|
+| `-Path` | The log file, for example the path of CCF_Audit.log. |
+| `-IncludeRotated` | Also check the rotated copies and the link between them. |
+| `-ExpectedLastHash` | Last hashes saved earlier (Get-CCFLogChainHead), one or several. If the chain no longer contains any of them, lines were deleted or the log was rewritten. With hashes saved over time, a forged later copy cannot hide that an earlier one is gone. |
+
+**Example 1**
+
+```powershell
+Test-CCFLogChain -Path (Join-Path (Get-CCFPath -Target Logs) 'CCF_Audit.log') -IncludeRotated
+```
+
+Checks the whole audit history.
 
 ## Unregister-CCFRedactionPattern
 
