@@ -1,6 +1,6 @@
 @{
     RootModule           = 'ArgosCCF.psm1'
-    ModuleVersion        = '1.4.1'
+    ModuleVersion        = '1.5.0'
     CompatiblePSEditions = @('Desktop', 'Core')
     GUID                 = 'a4ce1d7d-c89a-46eb-9a85-5edccd5dab32'
     Author               = 'David Prieto'
@@ -29,6 +29,8 @@
         'Write-CCFLogHeader'
         'Write-CCFSecurityRecord'
         'Write-CCFAuditRecord'
+        'Test-CCFLogChain'
+        'Get-CCFLogChainHead'
         'Write-CCFErrorRecord'
         'Remove-CCFOldLog'
         'Get-CCFLogWriter'

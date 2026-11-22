@@ -197,6 +197,7 @@ Export-ModuleMember -Function @(
     'Write-CCFLog', 'Write-CCFLogInfo', 'Write-CCFLogSuccess', 'Write-CCFLogWarn', 'Write-CCFLogError',
     'Write-CCFLogCritical', 'Write-CCFLogDebug', 'Write-CCFLogHeader',
     'Write-CCFSecurityRecord', 'Write-CCFAuditRecord', 'Write-CCFErrorRecord', 'Remove-CCFOldLog',
+    'Test-CCFLogChain', 'Get-CCFLogChainHead',
     'Get-CCFLogWriter', 'Wait-CCFLogWriter', 'Stop-CCFLogWriter',
     'Protect-CCFSensitiveData', 'Test-CCFEntropyContent', 'Test-CCFHealth', 'Submit-CCFHeartbeat',
     'Register-CCFSecret', 'Unregister-CCFSecret', 'Register-CCFRedactionPattern', 'Unregister-CCFRedactionPattern',

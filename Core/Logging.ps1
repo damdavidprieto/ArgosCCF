@@ -117,7 +117,8 @@ function Add-CCFLogText {
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text,
         [int]$MaxMB = 10,
-        [int]$MaxRolling = 5
+        [int]$MaxRolling = 5,
+        [switch]$Chain
     )
 
     $mutex = [System.Threading.Mutex]::new($false, (Get-CCFFileMutexName -Path $Path))
@@ -128,6 +129,8 @@ function Add-CCFLogText {
         if (-not $locked) { Write-Verbose "No lock on $Path after 5 seconds; writing anyway." }
 
         Invoke-CCFLogRotation -Path $Path -MaxMB $MaxMB -MaxRolling $MaxRolling
+        # Chained logs: the hash is computed inside the lock, from the line the file really ends with.
+        if ($Chain) { $Text = Add-CCFChainToText -Path $Path -Text $Text }
         for ($attempt = 1; $attempt -le 5; $attempt++) {
             try {
                 [System.IO.File]::AppendAllText($Path, $Text, $script:CCFLogEncoding)
@@ -147,6 +150,200 @@ function Add-CCFLogText {
         if ($locked) { $mutex.ReleaseMutex() }
         $mutex.Dispose()
     }
+}
+
+# --- Tamper-evident logs ---
+#
+# With Initialize-CCFLogger -Chain, every line of the chained categories ends with the SHA-256 of the previous
+# line's hash and its own text: " #chain=<hex>" in text mode, a "Chain" property in JSON mode. Changing,
+# inserting or deleting a line breaks every hash after it (Test-CCFLogChain). Deleting the last lines cannot be
+# seen from the file alone: keep the last hash somewhere else (Get-CCFLogChainHead) to cover that.
+
+$script:CCFChainGenesis = '0' * 64
+$script:CCFChainCategories = @()
+
+function Get-CCFChainHash {
+    <#
+    .SYNOPSIS
+        SHA-256 (lowercase hex) of the previous hash followed by the line, as used by the log chain.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)][string]$Previous,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Line
+    )
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { return [System.BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Previous + $Line))).Replace('-', '').ToLowerInvariant() }
+    finally { $sha.Dispose() }
+}
+
+function Split-CCFChainLine {
+    <#
+    .SYNOPSIS
+        Separates a log line into the text that was hashed and its chain hash ($null when the line has none).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Line)
+    $m = [regex]::Match($Line, ' #chain=([0-9a-f]{64})$')
+    if ($m.Success) { return [pscustomobject]@{ Text = $Line.Substring(0, $m.Index); Hash = $m.Groups[1].Value } }
+    $m = [regex]::Match($Line, ',"Chain":"([0-9a-f]{64})"\}$')
+    if ($m.Success) { return [pscustomobject]@{ Text = $Line.Substring(0, $m.Index) + '}'; Hash = $m.Groups[1].Value } }
+    return [pscustomobject]@{ Text = $Line; Hash = $null }
+}
+
+function Get-CCFLastChainHash {
+    <#
+    .SYNOPSIS
+        Chain hash of the last chained line of a log, of its newest rotated copy when the log is new, or the
+        all-zero start value.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory = $true)][string]$Path)
+    foreach ($file in @($Path, "$Path.1")) {
+        if (-not [System.IO.File]::Exists($file)) { continue }
+        $stream = [System.IO.File]::Open($file, 'Open', 'Read', 'ReadWrite')
+        try {
+            $length = [Math]::Min($stream.Length, 65536)
+            if ($length -eq 0) { continue }
+            $null = $stream.Seek(-$length, 'End')
+            $buffer = New-Object byte[] $length
+            $null = $stream.Read($buffer, 0, $length)
+        }
+        finally { $stream.Dispose() }
+        $lines = [System.Text.Encoding]::UTF8.GetString($buffer) -split "`r?`n"
+        for ($i = $lines.Count - 1; $i -ge 0; $i--) {
+            $hash = (Split-CCFChainLine -Line $lines[$i]).Hash
+            if ($hash) { return $hash }
+        }
+    }
+    return $script:CCFChainGenesis
+}
+
+function Add-CCFChainToText {
+    <#
+    .SYNOPSIS
+        Adds the chain hash to each line of Text, starting from the last hash of the file. Runs inside the file
+        lock (Add-CCFLogText -Chain), so concurrent writers chain in the order they write.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text
+    )
+    $previous = Get-CCFLastChainHash -Path $Path
+    $out = [System.Text.StringBuilder]::new()
+    foreach ($line in ($Text -split "`r?`n")) {
+        if ($line -eq '') { continue }
+        $hash = Get-CCFChainHash -Previous $previous -Line $line
+        $chained = if ($line.StartsWith('{') -and $line.EndsWith('}')) { $line.Substring(0, $line.Length - 1) + ",""Chain"":""$hash""}" } else { "$line #chain=$hash" }
+        $null = $out.Append($chained).Append([Environment]::NewLine)
+        $previous = $hash
+    }
+    return $out.ToString()
+}
+
+function Test-CCFLogChain {
+    <#
+    .SYNOPSIS
+        Checks that nobody has changed, inserted or deleted lines of a log written with Initialize-CCFLogger -Chain.
+
+    .DESCRIPTION
+        Recomputes the hash of every chained line from the one before. Returns Path, Entries (chained lines),
+        Valid, BrokenAt (the first line number that does not match, or $null), Reason and LastHash. Lines written
+        before the chain was enabled are skipped; an unchained line after a chained one breaks the chain.
+        With -IncludeRotated the rotated copies (.N down to .1) are checked first and the chain must run across
+        them from the start; otherwise the first chained line of the file is taken as given, because the line
+        before it is in a rotated copy. Deleting the last lines is not visible here: compare LastHash with a
+        copy kept elsewhere (-ExpectedLastHash).
+
+    .PARAMETER Path
+        The log file, for example the path of CCF_Audit.log.
+
+    .PARAMETER IncludeRotated
+        Also check the rotated copies and the link between them.
+
+    .PARAMETER ExpectedLastHash
+        A last hash saved earlier (Get-CCFLogChainHead). If the chain no longer contains it, lines were deleted
+        or the log was rewritten.
+
+    .EXAMPLE
+        Test-CCFLogChain -Path (Join-Path (Get-CCFPath -Target Logs) 'CCF_Audit.log') -IncludeRotated
+
+        Checks the whole audit history.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [switch]$IncludeRotated,
+        [string]$ExpectedLastHash
+    )
+    $files = @()
+    if ($IncludeRotated) {
+        for ($i = 100; $i -ge 1; $i--) { if ([System.IO.File]::Exists("$Path.$i")) { $files += "$Path.$i" } }
+    }
+    if ([System.IO.File]::Exists($Path)) { $files += $Path }
+    $result = [ordered]@{ Path = $Path; Entries = 0; Valid = $true; BrokenAt = $null; Reason = ''; LastHash = $null }
+    $previous = if ($IncludeRotated) { $script:CCFChainGenesis } else { $null }
+    $seen = @{}
+    foreach ($file in $files) {
+        $number = 0
+        foreach ($line in [System.IO.File]::ReadAllLines($file, [System.Text.Encoding]::UTF8)) {
+            $number++
+            if ($line -eq '') { continue }
+            $part = Split-CCFChainLine -Line $line
+            if (-not $part.Hash) {
+                if ($null -ne $result.LastHash) {
+                    $result.Valid = $false; $result.BrokenAt = "${file}:$number"; $result.Reason = 'A line without a chain hash follows chained lines: it was added or changed.'
+                    return [pscustomobject]$result
+                }
+                continue
+            }
+            if ($null -ne $previous -and (Get-CCFChainHash -Previous $previous -Line $part.Text) -ne $part.Hash) {
+                $result.Valid = $false; $result.BrokenAt = "${file}:$number"; $result.Reason = 'The hash does not match the line and the one before it: this line, or one before it, was changed, inserted or deleted.'
+                return [pscustomobject]$result
+            }
+            $previous = $part.Hash
+            $seen[$part.Hash] = $true
+            $result.LastHash = $part.Hash
+            $result.Entries++
+        }
+    }
+    if ($ExpectedLastHash -and -not $seen.ContainsKey($ExpectedLastHash)) {
+        $result.Valid = $false; $result.Reason = 'The saved last hash is no longer in the log: lines were deleted or the log was rewritten.'
+    }
+    return [pscustomobject]$result
+}
+
+function Get-CCFLogChainHead {
+    <#
+    .SYNOPSIS
+        The last chain hash of a log, to keep where the log's writer cannot change it.
+
+    .DESCRIPTION
+        Returns the hash of the last chained line (of the newest rotated copy when the log was just rotated),
+        or $null when the log has no chained lines. Keep it somewhere the program that writes the log cannot
+        change: another machine, an event log, a message. Test-CCFLogChain -ExpectedLastHash then shows whether
+        lines were deleted from the end afterwards, which the chain alone cannot show.
+
+    .PARAMETER Path
+        The log file.
+
+    .EXAMPLE
+        $head = Get-CCFLogChainHead -Path $auditLog
+        Test-CCFLogChain -Path $auditLog -ExpectedLastHash $head
+
+        Saves the head now and later checks that no line was removed since.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $hash = Get-CCFLastChainHash -Path $Path
+    if ($hash -eq $script:CCFChainGenesis) { return $null }
+    return $hash
 }
 
 # --- Background writer ---
@@ -649,6 +846,14 @@ function Initialize-CCFLogger {
         and when Initialize-CCFLogger runs again without -Background; entries still queued
         when the process is killed are lost. See Get-CCFLogWriter and Wait-CCFLogWriter.
 
+    .PARAMETER Chain
+        Categories whose log files are tamper-evident, for example 'Audit' and 'Security': every line ends
+        with a hash of itself and of the line before, so Test-CCFLogChain finds a line that was changed,
+        inserted or deleted. Use the category name, or 'System' for the session file. These entries are
+        always written directly, also with -Background.
+    .EXAMPLE
+        Initialize-CCFLogger -Chain Audit, Security
+        Audit and Security records can be checked later with Test-CCFLogChain.
     .EXAMPLE
         Initialize-CCFLogger -FileName 'Backup.log' -MaxMB 20
 
@@ -685,9 +890,12 @@ function Initialize-CCFLogger {
 
         [switch]$JsonOutput,
 
-        [switch]$Background
+        [switch]$Background,
+        [ValidateScript({ foreach ($c in $_) { if (-not (Test-CCFLogName -Name $c)) { throw "Chain categories must contain only letters, digits, '.', '-' and '_': $c" } }; $true })]
+        [string[]]$Chain = @()
     )
 
+    $script:CCFChainCategories = @($Chain)
     # Entries queued under the previous settings are written first.
     if ($Background) { Wait-CCFLogWriter } else { Stop-CCFLogWriter }
 
@@ -852,8 +1060,10 @@ function Write-CCFLog {
         # Background writing: queue the line; entries that must not be lost wait until they are on disk.
         # Audit and Security records, and errors, must not be lost without anyone noticing.
         $mustReport = $Category -eq 'Security' -or $Category -eq 'Audit' -or $script:LogLevels[$Level] -ge 3
+        # Chained categories are written directly: the chain needs the line the file ends with.
+        $chained = @($script:CCFChainCategories) -contains $Category
         $queued = $false
-        if ($null -ne $script:CCFWriter) {
+        if ($null -ne $script:CCFWriter -and -not $chained) {
             $writer = $script:CCFWriter
             $failedBefore = $writer.Status.Failed
             $queued = Add-CCFQueuedLogText -Path $targetFile -Text $text
@@ -866,7 +1076,7 @@ function Write-CCFLog {
         }
         if (-not $queued) {
             try {
-                Add-CCFLogText -Path $targetFile -Text $text -MaxMB $script:MaxLogSizeMB -MaxRolling $script:MaxLogRolling
+                Add-CCFLogText -Path $targetFile -Text $text -MaxMB $script:MaxLogSizeMB -MaxRolling $script:MaxLogRolling -Chain:$chained
             }
             catch {
                 # Never log a failure to log (it would recurse); warn on the console instead.
