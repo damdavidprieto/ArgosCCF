@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-26
+
+### Added
+- **`Register-CCFChainAnchor`**: runs a script block with every new chain head (path, category, hash, identifier, time),
+  to keep it where the log's writer cannot change it. Failures never stop logging; `Test-CCFHealth` reports them.
+- **`-Strict`** on `Initialize-CCFLogger`, `Write-CCFLog`, `Write-CCFAuditRecord` and `Write-CCFSecurityRecord`: an entry
+  that cannot be written throws an error instead of a warning.
+- **Copies without the deprecated components**: the module loads when `Core/Configuration.ps1`, `Plugins.ps1` and
+  `Execution.ps1` are left out, and exports the rest. `Test-CCFHealth` only checks the components present.
+- **Secrets in sentences**: "the password is X" and "la contrasena es X" when X has a digit or a symbol, or is quoted.
+- `Test-CCFLogChain -ExpectedLastHash` also takes objects with `Hash` and `Time`; the result has `ArchivedUntil` and
+  `MissingHashes`.
+
+### Fixed
+- **Rotation no longer breaks a chained log.** When the oldest copy was deleted, `Test-CCFLogChain -IncludeRotated`
+  reported the log as changed, and saved hashes of the deleted copy as missing. The new file now starts with a chained
+  line that records the last hash and time of the deleted copy; the check starts from it, and saved hashes older than
+  it are no longer required (with their time).
+- `clave` only counts as a secret key in text when its value has a digit or a symbol, or is quoted.
+
 ## [1.6.0] - 2026-11-25
 
 ### Added

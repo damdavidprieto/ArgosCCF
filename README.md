@@ -92,7 +92,7 @@ More in [`Examples/`](Examples/). Each example runs as part of the tests.
 |---|---|
 | Redaction | `Protect-CCFSensitiveData`, `Protect-CCFLogFile`, `Register-CCFSecret`, `Unregister-CCFSecret`, `Register-CCFRedactionPattern`, `Unregister-CCFRedactionPattern`, `Get-CCFRedactionPattern`, `Test-CCFEntropyContent` |
 | Logging | `Initialize-CCFLogger`, `Write-CCFLog`, `Write-CCFLogInfo`, `Write-CCFLogSuccess`, `Write-CCFLogWarn`, `Write-CCFLogError`, `Write-CCFLogCritical`, `Write-CCFLogDebug`, `Write-CCFLogHeader`, `Set-CCFLogLevel`, `Register-CCFLogProvider`, `Register-CCFSIEMProvider`, `Remove-CCFOldLog`, `Get-CCFLogWriter`, `Wait-CCFLogWriter`, `Stop-CCFLogWriter` |
-| Security and audit records | `Write-CCFSecurityRecord`, `Write-CCFAuditRecord`, `Write-CCFErrorRecord`, `Test-CCFLogChain`, `Get-CCFLogChainHead` |
+| Security and audit records | `Write-CCFSecurityRecord`, `Write-CCFAuditRecord`, `Write-CCFErrorRecord`, `Test-CCFLogChain`, `Get-CCFLogChainHead`, `Register-CCFChainAnchor` |
 | Environment | `Get-CCFPath`, `Initialize-CCFEnvironment`, `Test-CCFHealth`, `Submit-CCFHeartbeat` |
 | Deprecated (removed in 2.0.0) | Configuration: `Get-CCFConfig`, `Set-CCFUserConfig`, `Merge-CCFConfig`, `Test-CCFConfigSchema`, `Remove-CCFConfigCache`. Plugins: `Get-CCFPlugin`, `Invoke-CCFPlugin`, `Confirm-CCFPluginSignature`. Parallel execution: `Invoke-CCFParallel` |
 
@@ -100,6 +100,11 @@ Older names such as `Log-Info`, `Init-CCFLogger`, `Redact-CCFSensitiveData` and 
 as aliases. See the [API reference](Docs/API-Reference.md) for every command and alias.
 
 ### Deprecated areas
+
+A copy of the module that only needs logging and redaction (for example, one bundled with a tool that runs as
+administrator) can leave out `Core/Configuration.ps1`, `Core/Plugins.ps1` and `Core/Execution.ps1`: it loads and exports
+the rest.
+
 
 Up to 1.3, ArgosCCF also offered layered JSON configuration, plugins and parallel execution. They keep
 working in 1.x, unchanged except that user settings are now saved in the per-user data folder, but

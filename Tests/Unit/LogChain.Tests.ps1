@@ -19,6 +19,10 @@ AfterAll {
         $script:CurrentLogFile = $null
         $script:CCFChainCategories = @()
         $script:CCFChainId = ''
+        $script:CCFStrict = $false
+        $script:CCFChainAnchor = $null
+        $script:CCFChainAnchorSeconds = 0
+        $script:CCFChainAnchorFailures = 0
         $script:JsonOutput = $false
         $script:MaxLogSizeMB = 10
         $script:MaxLogRolling = 5
@@ -175,5 +179,102 @@ Describe 'Chain identifier' {
         Set-Content -Path $log -Value @(Get-Content $log | ForEach-Object { $_.Replace('#id=copy-a', '#id=copy-b') })
         (Test-CCFLogChain -Path $log -ChainId 'copy-b' -IncludeRotated).Valid | Should -BeFalse
         { Initialize-CCFLogger -Path $folder -ChainId 'a b' } | Should -Throw
+    }
+}
+
+Describe 'Rotation of a chained log' {
+    BeforeEach {
+        $script:folder = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        Initialize-CCFLogger -Path $folder -Chain Audit -MaxMB 1 -MaxRolling 2
+        $script:log = Join-Path $folder 'CCF_Audit.log'
+        $script:pad = 'x' * 900
+    }
+
+    It 'keeps the chain valid after the oldest copy is deleted, and drops only the hashes saved before it' {
+        $saved = @()
+        for ($i = 1; $i -le 3600; $i++) {
+            Write-CCFAuditRecord -Action "Change$i" -User 'tester' -Resource "item $pad"
+            if ($i % 300 -eq 0) { $saved += [pscustomobject]@{ Hash = (Get-CCFLogChainHead -Path $log); Time = [datetime]::UtcNow } }
+        }
+        Test-Path "$log.3" | Should -BeFalse
+        @(Select-String -Path "$log*" -Pattern '\[CHAIN\] Archived').Count | Should -BeGreaterThan 0
+        $r = Test-CCFLogChain -Path $log -IncludeRotated -ExpectedLastHash $saved
+        $r.Valid | Should -BeTrue
+        $r.ArchivedUntil | Should -Not -BeNullOrEmpty
+        $r.MissingHashes.Count | Should -Be 0
+        # Without the time, a hash of a deleted copy is still reported.
+        (Test-CCFLogChain -Path $log -IncludeRotated -ExpectedLastHash $saved[0].Hash).Valid | Should -BeFalse
+        # The last hash, saved after the deletion, must be there.
+        $gone = [pscustomobject]@{ Hash = ('ab' * 32); Time = [datetime]::UtcNow }
+        (Test-CCFLogChain -Path $log -IncludeRotated -ExpectedLastHash $gone).Valid | Should -BeFalse
+    }
+
+    It 'still finds a changed line in a rotated copy' {
+        for ($i = 1; $i -le 2500; $i++) { Write-CCFAuditRecord -Action "Change$i" -User 'tester' -Resource "item $pad" }
+        $lines = @(Get-Content "$log.1")
+        $lines[5] = $lines[5].Replace('Change', 'Cambio')
+        Set-Content -Path "$log.1" -Value $lines
+        (Test-CCFLogChain -Path $log -IncludeRotated).Valid | Should -BeFalse
+    }
+
+    It 'does not accept an archive line that does not match the copy left' {
+        for ($i = 1; $i -le 3600; $i++) { Write-CCFAuditRecord -Action "Change$i" -User 'tester' -Resource "item $pad" }
+        $oldest = @(Get-ChildItem "$log.*" | Sort-Object Name -Descending)[0].FullName
+        $lines = @(Get-Content $oldest)
+        Set-Content -Path $oldest -Value $lines[1..($lines.Count - 1)]
+        (Test-CCFLogChain -Path $log -IncludeRotated).Valid | Should -BeFalse
+    }
+}
+
+Describe 'Chain anchors and strict writes' {
+    AfterEach {
+        Register-CCFChainAnchor
+        InModuleScope ArgosCCF { $script:CCFChainAnchorFailures = 0; $script:CCFStrict = $false }
+    }
+
+    It 'passes every new head, with the identifier, and the last one is the head of the log' {
+        $folder = Join-Path $TestDrive 'anchor'
+        Initialize-CCFLogger -Path $folder -Chain Audit, Vigilancia -ChainId 'copy-a'
+        $got = [System.Collections.Generic.List[object]]::new()
+        Register-CCFChainAnchor -ScriptBlock { param($a) $got.Add($a) }.GetNewClosure()
+        Write-CCFAuditRecord -Action 'A' -User 'u'
+        Write-CCFLog -Message 'vigilancia' -Category 'Vigilancia'
+        Write-CCFLog -Message 'not chained' -Category 'Errors'
+        $got.Count | Should -Be 2
+        $got[0].Category | Should -Be 'Audit'
+        $got[0].ChainId | Should -Be 'copy-a'
+        $got[0].Hash | Should -Be (Get-CCFLogChainHead -Path (Join-Path $folder 'CCF_Audit.log'))
+        $got[1].Hash | Should -Be (Get-CCFLogChainHead -Path (Join-Path $folder 'CCF_Vigilancia.log'))
+        (Test-CCFLogChain -Path (Join-Path $folder 'CCF_Audit.log') -ExpectedLastHash $got[0]).Valid | Should -BeTrue
+    }
+
+    It 'skips heads within -MinimumSeconds, and counts failures without stopping the log' {
+        $folder = Join-Path $TestDrive 'anchor2'
+        Initialize-CCFLogger -Path $folder -Chain Audit
+        $script:count = 0
+        Register-CCFChainAnchor -MinimumSeconds 3600 -ScriptBlock { $script:count++ }
+        1..3 | ForEach-Object { Write-CCFAuditRecord -Action "A$_" -User 'u' }
+        $script:count | Should -Be 1
+        Register-CCFChainAnchor -ScriptBlock { throw 'down' }
+        Write-CCFAuditRecord -Action 'B' -User 'u'
+        @(Get-Content (Join-Path $folder 'CCF_Audit.log')).Count | Should -Be 4
+        $check = (Test-CCFHealth).Checks | Where-Object { $_.Target -eq 'ChainAnchor' }
+        $check.Pass | Should -BeFalse
+        $check.Failures | Should -Be 1
+    }
+
+    It 'throws when a strict entry cannot be written, and only warns otherwise' {
+        $folder = Join-Path $TestDrive 'strict'
+        Initialize-CCFLogger -Path $folder -Chain Audit
+        $locked = Join-Path $folder 'CCF_Audit.log'
+        $stream = [System.IO.File]::Open($locked, 'OpenOrCreate', 'ReadWrite', 'None')
+        try {
+            { Write-CCFAuditRecord -Action 'A' -User 'u' -WarningAction SilentlyContinue } | Should -Not -Throw
+            { Write-CCFAuditRecord -Action 'A' -User 'u' -Strict } | Should -Throw '*was not saved*'
+            Initialize-CCFLogger -Path $folder -Chain Audit -Strict
+            { Write-CCFAuditRecord -Action 'A' -User 'u' } | Should -Throw '*was not saved*'
+            { Write-CCFLog -Message 'normal' -Category 'Other' } | Should -Not -Throw
+        }
+        finally { $stream.Dispose() }
     }
 }

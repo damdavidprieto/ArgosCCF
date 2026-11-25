@@ -14,6 +14,8 @@ $script:CCFLogEncoding = [System.Text.UTF8Encoding]::new($false)
 $script:LogLevels = @{ 'DEBUG' = 0; 'INFO' = 1; 'WARN' = 2; 'SUCCESS' = 2; 'ERROR' = 3; 'CRITICAL' = 4 }
 $script:CurrentLogLevel = 1
 $script:JsonOutput = $false
+# Initialize-CCFLogger -Strict: chained, Security and Audit entries that cannot be written throw an error.
+$script:CCFStrict = $false
 $script:LastProviderHeartbeat = $null
 
 # --- Private helpers ---
@@ -82,14 +84,21 @@ function Invoke-CCFLogRotation {
         Uses .NET calls only, so the background writer can run it without loading cmdlets.
     #>
     [CmdletBinding()]
+    [OutputType([string])]
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [int]$MaxMB = 10,
-        [int]$MaxRolling = 5
+        [int]$MaxRolling = 5,
+        # Chained log: before the oldest copy is deleted, returns the line that records it (see Add-CCFLogText).
+        [switch]$Chain
     )
 
     $info = [System.IO.FileInfo]::new($Path)
     if (-not $info.Exists -or $info.Length -le ([long]$MaxMB * 1MB)) { return }
+
+    $archived = $null
+    $oldest = "$Path.$MaxRolling"
+    if ($Chain -and [System.IO.File]::Exists($oldest)) { $archived = Get-CCFArchiveLine -Path $oldest }
 
     for ($i = $MaxRolling - 1; $i -ge 0; $i--) {
         $old = if ($i -eq 0) { $Path } else { "$Path.$i" }
@@ -98,6 +107,7 @@ function Invoke-CCFLogRotation {
         if ([System.IO.File]::Exists($new)) { [System.IO.File]::Delete($new) }
         [System.IO.File]::Move($old, $new)
     }
+    if ($archived) { return $archived }
 }
 
 function Add-CCFLogText {
@@ -105,6 +115,7 @@ function Add-CCFLogText {
     .SYNOPSIS
         Appends text (one or more complete lines) to a log file, rotating it first if needed, with the file locked for every runspace and process.
     .DESCRIPTION
+        With -Chain, returns the chain hash of the last line written.
         A named mutex derived from the file path makes writers wait for each other, so concurrent
         writes from runspaces or other processes are neither lost nor interleaved. If the lock is
         not obtained within 5 seconds the text is written anyway: logging never blocks a script.
@@ -129,12 +140,19 @@ function Add-CCFLogText {
         catch [System.Threading.AbandonedMutexException] { $locked = $true }
         if (-not $locked) { Write-Verbose "No lock on $Path after 5 seconds; writing anyway." }
 
-        Invoke-CCFLogRotation -Path $Path -MaxMB $MaxMB -MaxRolling $MaxRolling
-        # Chained logs: the hash is computed inside the lock, from the line the file really ends with.
-        if ($Chain) { $Text = Add-CCFChainToText -Path $Path -Text $Text -ChainId $ChainId }
+        $archived = Invoke-CCFLogRotation -Path $Path -MaxMB $MaxMB -MaxRolling $MaxRolling -Chain:$Chain
+        # Chained logs: the hash is computed inside the lock, from the line the file really ends with. When rotation
+        # deleted the oldest copy, the first line of the new file says so, so the chain can still be checked.
+        $head = $null
+        if ($Chain) {
+            if ($archived) { $Text = $archived + [Environment]::NewLine + $Text }
+            $Text = Add-CCFChainToText -Path $Path -Text $Text -ChainId $ChainId
+            $head = Split-CCFChainLine -Line (($Text.TrimEnd() -split "`r?`n")[-1])
+        }
         for ($attempt = 1; $attempt -le 5; $attempt++) {
             try {
                 [System.IO.File]::AppendAllText($Path, $Text, $script:CCFLogEncoding)
+                if ($head) { return $head.Hash }
                 return
             }
             catch [System.IO.DirectoryNotFoundException] {
@@ -164,6 +182,11 @@ $script:CCFChainGenesis = '0' * 64
 $script:CCFChainCategories = @()
 # Who writes the chain (Initialize-CCFLogger -ChainId). It is part of the hashed text of every line.
 $script:CCFChainId = ''
+# Called with every new chain head (Register-CCFChainAnchor), to keep it where the log's writer cannot change it.
+$script:CCFChainAnchor = $null
+$script:CCFChainAnchorSeconds = 0
+$script:CCFChainAnchorLast = @{}
+$script:CCFChainAnchorFailures = 0
 
 function Get-CCFChainHash {
     <#
@@ -193,6 +216,46 @@ function Split-CCFChainLine {
     $m = [regex]::Match($Line, ',"Chain":"([0-9a-f]{64})"\}$')
     if ($m.Success) { return [pscustomobject]@{ Text = $Line.Substring(0, $m.Index) + '}'; Hash = $m.Groups[1].Value } }
     return [pscustomobject]@{ Text = $Line; Hash = $null }
+}
+
+# When rotation deletes the oldest copy of a chained log, the new file starts with a line that records the
+# last hash and the time of the last line of the deleted copy. It is chained like any other line.
+$script:CCFArchiveRegex = [regex]'\[CHAIN\] Archived (?<file>\S+): (?<lines>\d+) lines up to (?<time>\S+), last hash (?<hash>[0-9a-f]{64})'
+
+function Get-CCFLineTime {
+    <#
+    .SYNOPSIS
+        Time of a log line (text or JSON), or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([datetime])]
+    param([AllowEmptyString()][string]$Line)
+    $m = [regex]::Match($Line, '^\[(\d{4}-\d{2}-\d{2}T[0-9:.]+Z)\]|"Timestamp":"(\d{4}-\d{2}-\d{2}T[0-9:.]+Z)"')
+    if (-not $m.Success) { return $null }
+    $value = if ($m.Groups[1].Success) { $m.Groups[1].Value } else { $m.Groups[2].Value }
+    return [datetime]::Parse($value, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal)
+}
+
+function Get-CCFArchiveLine {
+    <#
+    .SYNOPSIS
+        The line that records the deletion of a rotated copy of a chained log, or $null when it has no chained lines.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $last = $null; $count = 0
+    foreach ($line in [System.IO.File]::ReadAllLines($Path, [System.Text.Encoding]::UTF8)) {
+        $part = Split-CCFChainLine -Line $line
+        if ($part.Hash) { $last = $part; $count++ }
+    }
+    if (-not $last) { return $null }
+    $time = Get-CCFLineTime -Line $last.Text
+    $when = if ($time) { $time.ToString('yyyy-MM-ddTHH:mm:ss.fffZ') } else { 'unknown' }
+    $message = "[CHAIN] Archived $([System.IO.Path]::GetFileName($Path)): $count lines up to $when, last hash $($last.Hash)"
+    $timestamp = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+    if ($script:JsonOutput) { return ([ordered]@{ Timestamp = $timestamp; Level = 'INFO'; Category = 'Chain'; Message = $message } | ConvertTo-Json -Compress) }
+    return "[$timestamp] [INFO] [Chain] $message"
 }
 
 function Get-CCFChainLineId {
@@ -274,6 +337,64 @@ function Add-CCFChainToText {
     return $out.ToString()
 }
 
+function Register-CCFChainAnchor {
+    <#
+    .SYNOPSIS
+        Runs a script block with every new chain head, to save it where the program that writes the log cannot change it.
+
+    .DESCRIPTION
+        After each line of a chained category is written (Initialize-CCFLogger -Chain), the script block receives an
+        object with Path, Category, Hash, ChainId and Time (UTC). Save it somewhere the log's writer cannot change:
+        an event log, another machine, a message. Test-CCFLogChain -ExpectedLastHash with those objects then finds
+        lines deleted from the end, which the chain alone cannot show.
+        A failure in the script block never stops logging: it is counted, and Test-CCFHealth reports it.
+        Without -ScriptBlock, removes the registered one.
+
+    .PARAMETER ScriptBlock
+        The script block. It receives the anchor object as its only argument.
+
+    .PARAMETER MinimumSeconds
+        Run it at most once in this many seconds for each log (the default, 0, runs it for every line). The heads
+        skipped are not lost: the next one covers them, but lines deleted in between cannot be told apart.
+
+    .EXAMPLE
+        Register-CCFChainAnchor -ScriptBlock { param($a) Write-EventLog -LogName Application -Source MyApp -EventId 1000 -Message "$($a.Category) $($a.Hash)" }
+
+        Keeps every head of the chained logs in the Application event log.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Registers a callback in memory only.')]
+    [CmdletBinding()]
+    param(
+        [scriptblock]$ScriptBlock,
+        [ValidateRange(0, 86400)][int]$MinimumSeconds = 0
+    )
+    $script:CCFChainAnchor = $ScriptBlock
+    $script:CCFChainAnchorSeconds = $MinimumSeconds
+    $script:CCFChainAnchorLast = @{}
+}
+
+function Invoke-CCFChainAnchor {
+    <#
+    .SYNOPSIS
+        Passes a new chain head to the script block of Register-CCFChainAnchor.
+    #>
+    [CmdletBinding()]
+    param([string]$Path, [string]$Category, [string]$Hash)
+    if ($null -eq $script:CCFChainAnchor -or -not $Hash) { return }
+    $now = [DateTime]::UtcNow
+    $last = $script:CCFChainAnchorLast[$Path]
+    if ($script:CCFChainAnchorSeconds -gt 0 -and $null -ne $last -and ($now - $last).TotalSeconds -lt $script:CCFChainAnchorSeconds) { return }
+    try {
+        $anchor = [pscustomobject]@{ Path = $Path; Category = $Category; Hash = $Hash; ChainId = $script:CCFChainId; Time = $now }
+        $null = Invoke-Command -ScriptBlock $script:CCFChainAnchor -ArgumentList $anchor -ErrorAction Stop
+        $script:CCFChainAnchorLast[$Path] = $now
+    }
+    catch {
+        $script:CCFChainAnchorFailures++
+        Write-Verbose "The chain anchor failed: $($_.Exception.Message)"
+    }
+}
+
 function Test-CCFLogChain {
     <#
     .SYNOPSIS
@@ -286,7 +407,9 @@ function Test-CCFLogChain {
         before the chain was enabled are skipped; an unchained line after a chained one breaks the chain.
         With -IncludeRotated the rotated copies (.N down to .1) are checked first and the chain must run across
         them from the start; otherwise the first chained line of the file is taken as given, because the line
-        before it is in a rotated copy. Deleting the last lines is not visible here: compare LastHash with a
+        before it is in a rotated copy. When rotation deleted the oldest copy, the copy left starts from the hash
+        recorded in its first line, and ArchivedUntil is the time of the last line deleted.
+        Deleting the last lines is not visible here: compare LastHash with a
         copy kept elsewhere (-ExpectedLastHash).
 
     .PARAMETER Path
@@ -296,7 +419,9 @@ function Test-CCFLogChain {
         Also check the rotated copies and the link between them.
 
     .PARAMETER ExpectedLastHash
-        Last hashes saved earlier (Get-CCFLogChainHead), one or several. If the chain no longer contains any of
+        Last hashes saved earlier (Get-CCFLogChainHead), one or several: strings, or objects with Hash and Time (when the
+        hash was saved). A hash saved before the last line of a copy that rotation deleted is not required any more.
+        With plain strings, every hash must still be in the log. If the chain no longer contains any of
         them, lines were deleted or the log was rewritten. With hashes saved over time, a forged later copy
         cannot hide that an earlier one is gone.
 
@@ -316,7 +441,7 @@ function Test-CCFLogChain {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [switch]$IncludeRotated,
-        [string[]]$ExpectedLastHash,
+        [object[]]$ExpectedLastHash,
         [ValidatePattern('^[A-Za-z0-9._-]{1,64}$')]
         [string]$ChainId
     )
@@ -325,7 +450,18 @@ function Test-CCFLogChain {
         for ($i = 100; $i -ge 1; $i--) { if ([System.IO.File]::Exists("$Path.$i")) { $files += "$Path.$i" } }
     }
     if ([System.IO.File]::Exists($Path)) { $files += $Path }
-    $result = [ordered]@{ Path = $Path; Entries = 0; Valid = $true; BrokenAt = $null; Reason = ''; LastHash = $null; ChainId = '' }
+    $result = [ordered]@{ Path = $Path; Entries = 0; Valid = $true; BrokenAt = $null; Reason = ''; LastHash = $null; ChainId = ''; ArchivedUntil = $null; MissingHashes = @() }
+    # Copies deleted by rotation: the oldest copy left may start from the last hash of one of them.
+    $starts = @{}
+    foreach ($file in $files) {
+        foreach ($m in $script:CCFArchiveRegex.Matches([System.IO.File]::ReadAllText($file, [System.Text.Encoding]::UTF8))) {
+            $starts[$m.Groups['hash'].Value] = $true
+            $until = [datetime]::MinValue
+            if ([datetime]::TryParse($m.Groups['time'].Value, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal, [ref]$until)) {
+                if ($null -eq $result.ArchivedUntil -or $until -gt $result.ArchivedUntil) { $result.ArchivedUntil = $until }
+            }
+        }
+    }
     $previous = if ($IncludeRotated) { $script:CCFChainGenesis } else { $null }
     $seen = @{}
     foreach ($file in $files) {
@@ -341,7 +477,9 @@ function Test-CCFLogChain {
                 }
                 continue
             }
-            if ($null -ne $previous -and (Get-CCFChainHash -Previous $previous -Line $part.Text) -ne $part.Hash) {
+            $first = $IncludeRotated -and $result.Entries -eq 0 -and $null -eq $result.LastHash
+            $fromArchive = $first -and @($starts.Keys | Where-Object { (Get-CCFChainHash -Previous $_ -Line $part.Text) -eq $part.Hash }).Count
+            if (-not $fromArchive -and $null -ne $previous -and (Get-CCFChainHash -Previous $previous -Line $part.Text) -ne $part.Hash) {
                 $result.Valid = $false; $result.BrokenAt = "${file}:$number"; $result.Reason = 'The hash does not match the line and the one before it: this line, or one before it, was changed, inserted or deleted.'
                 return [pscustomobject]$result
             }
@@ -357,7 +495,14 @@ function Test-CCFLogChain {
             $result.Entries++
         }
     }
-    $missing = @($ExpectedLastHash | Where-Object { $_ -and -not $seen.ContainsKey($_) })
+    $missing = @(foreach ($expected in @($ExpectedLastHash | Where-Object { $_ })) {
+            $hash = if ($expected -is [string]) { $expected } else { "$($expected.Hash)" }
+            if ($seen.ContainsKey($hash)) { continue }
+            # Saved before the end of a copy that rotation deleted: it went with that copy.
+            if ($expected -isnot [string] -and $null -ne $expected.Time -and $null -ne $result.ArchivedUntil -and ([datetime]$expected.Time).ToUniversalTime() -le $result.ArchivedUntil) { continue }
+            $hash
+        })
+    $result.MissingHashes = $missing
     if ($ChainId -and $result.Entries -gt 0 -and -not $result.ChainId) {
         $result.Valid = $false; $result.Reason = 'No line carries the expected identifier.'
     }
@@ -784,8 +929,9 @@ function Test-CCFHealth {
 
     .DESCRIPTION
         Returns an object with Timestamp, Status ("OK" or "DEGRADED") and Checks, one entry per
-        component (Logging, Configuration, Execution, Plugins), one for the Logs folder and,
-        with background writing, one for the writer (running, with no failed writes).
+        component (Logging, and Configuration, Execution and Plugins when their files are present), one for the
+        Logs folder, one for the chain anchor when one is registered (no failures) and, with background writing,
+        one for the writer (running, with no failed writes).
         Status is DEGRADED when any check fails. Use it at the start of a script, or in a
         monitoring job, to fail early when the environment is not usable.
 
@@ -817,6 +963,8 @@ function Test-CCFHealth {
         Plugins       = 'Invoke-CCFPlugin'
     }
     foreach ($name in $components.Keys) {
+        # The deprecated components can be left out of a copy of the module (see the README).
+        if ($name -ne 'Logging' -and -not (Test-Path -LiteralPath (Join-Path (Get-CCFPath -Target 'Core') "$name.ps1"))) { continue }
         $loaded = $null -ne (Get-Command -Name $components[$name] -ErrorAction SilentlyContinue)
         $report.Checks += @{ Target = "Component:$name"; Pass = $loaded }
         if (-not $loaded) { $report.Status = 'DEGRADED' }
@@ -825,6 +973,11 @@ function Test-CCFHealth {
     $logsWritable = Test-CCFWritableDirectory -Path (Get-CCFPath -Target 'Logs')
     $report.Checks += @{ Target = 'LogsWritable'; Pass = $logsWritable }
     if (-not $logsWritable) { $report.Status = 'DEGRADED' }
+
+    if ($null -ne $script:CCFChainAnchor) {
+        $report.Checks += @{ Target = 'ChainAnchor'; Pass = ($script:CCFChainAnchorFailures -eq 0); Failures = $script:CCFChainAnchorFailures }
+        if ($script:CCFChainAnchorFailures -gt 0) { $report.Status = 'DEGRADED' }
+    }
 
     $writer = Get-CCFLogWriter
     if ($writer.Mode -eq 'Background') {
@@ -912,6 +1065,10 @@ function Initialize-CCFLogger {
         Identifier of who writes the chain (letters, digits, '.', '-' and '_'), added to every chained line inside
         what is hashed. With it, Test-CCFLogChain -ChainId tells lines of another program or another copy apart.
 
+    .PARAMETER Strict
+        Entries of the chained categories, and Security and Audit records, that cannot be written throw an error
+        instead of a warning, so a script can stop before doing something it could not record.
+
     .EXAMPLE
         Initialize-CCFLogger -Chain Audit, Security
         Audit and Security records can be checked later with Test-CCFLogChain.
@@ -956,10 +1113,13 @@ function Initialize-CCFLogger {
         [string[]]$Chain = @(),
 
         [ValidatePattern('^[A-Za-z0-9._-]{1,64}$')]
-        [string]$ChainId
+        [string]$ChainId,
+
+        [switch]$Strict
     )
 
     $script:CCFChainCategories = @($Chain)
+    $script:CCFStrict = [bool]$Strict
     $script:CCFChainId = "$ChainId"
     # Entries queued under the previous settings are written first.
     if ($Background) { Wait-CCFLogWriter } else { Stop-CCFLogWriter }
@@ -1029,6 +1189,10 @@ function Write-CCFLog {
         Log category, which also names the log file. Letters, digits, dot, dash and underscore.
         Defaults to System.
 
+    .PARAMETER Strict
+        Throw an error when the entry cannot be written to its file, instead of a warning. Initialize-CCFLogger
+        -Strict does this for the chained categories and for Security and Audit records.
+
     .PARAMETER NoBuffer
         With background writing (Initialize-CCFLogger -Background), wait until this entry is
         in the file before returning. Without background writing every entry is written
@@ -1061,7 +1225,9 @@ function Write-CCFLog {
         [ValidateScript({ if (Test-CCFLogName -Name $_) { $true } else { throw "Category must contain only letters, digits, '.', '-' and '_': $_" } })]
         [string]$Category = 'System',
 
-        [switch]$NoBuffer
+        [switch]$NoBuffer,
+
+        [switch]$Strict
     )
 
     if ($script:LogLevels[$Level] -lt $script:CurrentLogLevel) { return }
@@ -1127,8 +1293,9 @@ function Write-CCFLog {
         $mustReport = $Category -eq 'Security' -or $Category -eq 'Audit' -or $script:LogLevels[$Level] -ge 3
         # Chained categories are written directly: the chain needs the line the file ends with.
         $chained = @($script:CCFChainCategories) -contains $Category
+        $strictWrite = $Strict -or ($script:CCFStrict -and ($chained -or $Category -eq 'Security' -or $Category -eq 'Audit'))
         $queued = $false
-        if ($null -ne $script:CCFWriter -and -not $chained) {
+        if ($null -ne $script:CCFWriter -and -not $chained -and -not $strictWrite) {
             $writer = $script:CCFWriter
             $failedBefore = $writer.Status.Failed
             $queued = Add-CCFQueuedLogText -Path $targetFile -Text $text
@@ -1141,11 +1308,12 @@ function Write-CCFLog {
         }
         if (-not $queued) {
             try {
-                Add-CCFLogText -Path $targetFile -Text $text -MaxMB $script:MaxLogSizeMB -MaxRolling $script:MaxLogRolling -Chain:$chained -ChainId $script:CCFChainId
+                $head = Add-CCFLogText -Path $targetFile -Text $text -MaxMB $script:MaxLogSizeMB -MaxRolling $script:MaxLogRolling -Chain:$chained -ChainId $script:CCFChainId
+                if ($chained) { Invoke-CCFChainAnchor -Path $targetFile -Category $Category -Hash $head }
             }
             catch {
-                # Never log a failure to log (it would recurse); warn on the console instead.
                 $message = "Could not write to ${targetFile}: $($_.Exception.Message)"
+                if ($strictWrite) { throw "ArgosCCF: a $Category $Level entry was not saved. $message" }
                 if ($mustReport) { Write-Warning "ArgosCCF: a $Category $Level entry was not saved. $message" }
                 else { Write-Verbose $message }
             }
@@ -1408,6 +1576,8 @@ function Write-CCFSecurityRecord {
 
     .PARAMETER Metadata
         Optional extra data.
+    .PARAMETER Strict
+        Throw an error if the record cannot be written, instead of a warning.
 
     .EXAMPLE
         Write-CCFSecurityRecord -Type 'PathTraversal' -Source 'UserInput' -Payload '../../etc/passwd'
@@ -1420,11 +1590,12 @@ function Write-CCFSecurityRecord {
         [Parameter(Mandatory = $true)][string]$Source,
         [string]$Payload = '',
         [ValidateSet('WARN', 'ERROR', 'CRITICAL')][string]$Severity = 'WARN',
-        [hashtable]$Metadata = @{}
+        [hashtable]$Metadata = @{},
+        [switch]$Strict
     )
 
     $data = @{ Type = $Type; Source = $Source; Payload = $Payload; Metadata = $Metadata }
-    Write-CCFLog -Message "[SECURITY] $Type from $Source" -Level $Severity -Category 'Security' -Data $data
+    Write-CCFLog -Message "[SECURITY] $Type from $Source" -Level $Severity -Category 'Security' -Data $data -Strict:$Strict
 }
 
 function Write-CCFAuditRecord {
@@ -1451,6 +1622,8 @@ function Write-CCFAuditRecord {
 
     .PARAMETER Metadata
         Optional extra data.
+    .PARAMETER Strict
+        Throw an error if the record cannot be written, instead of a warning.
 
     .EXAMPLE
         Write-CCFAuditRecord -Action 'FileDeletion' -User $env:USERNAME -Resource 'C:\Data\db.bak'
@@ -1463,11 +1636,12 @@ function Write-CCFAuditRecord {
         [Parameter(Mandatory = $true)][string]$User,
         [string]$Resource = '',
         [ValidateSet('Success', 'Failure')][string]$Outcome = 'Success',
-        [hashtable]$Metadata = @{}
+        [hashtable]$Metadata = @{},
+        [switch]$Strict
     )
 
     $data = @{ Action = $Action; User = $User; Resource = $Resource; Outcome = $Outcome; Metadata = $Metadata }
-    Write-CCFLog -Message ("[AUDIT] $User $Action $Resource".Trim()) -Level 'INFO' -Category 'Audit' -Data $data
+    Write-CCFLog -Message ("[AUDIT] $User $Action $Resource".Trim()) -Level 'INFO' -Category 'Audit' -Data $data -Strict:$Strict
 }
 
 # --- Log maintenance ---

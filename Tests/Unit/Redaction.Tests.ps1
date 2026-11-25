@@ -142,6 +142,7 @@ Describe 'XML and Spanish keys' {
         @{ Text = "contrase$([char]0xF1)a=Zanahoria9"; Expected = "contrase$([char]0xF1)a=[REDACTED]" }
         @{ Text = "CONTRASE$([char]0xD1)A=Zanahoria9"; Expected = "CONTRASE$([char]0xD1)A=[REDACTED]" }
         @{ Text = 'clave: Zanahoria9'; Expected = 'clave: [REDACTED]' }
+        @{ Text = "clave='casa grande'"; Expected = "clave='[REDACTED]'" }
     ) {
         Protect-CCFSensitiveData -InputData $Text | Should -BeExactly $Expected
     }
@@ -153,7 +154,17 @@ Describe 'XML and Spanish keys' {
         $r.Enclave | Should -Be 'x'
     }
 
-    It 'keeps <Text>' -TestCases @(@{ Text = 'secretary=Ana' }, @{ Text = 'pass=3 fail=0' }, @{ Text = '<name>Ana</name>' }, @{ Text = 'enclave: x' }) {
+    It 'redacts a password in a sentence: <Text>' -TestCases @(
+        @{ Text = 'the password is Zanahoria9.'; Expected = 'the password is [REDACTED].' }
+        @{ Text = "la contrase$([char]0xF1)a es Zanahoria9, cambiala"; Expected = "la contrase$([char]0xF1)a es [REDACTED], cambiala" }
+        @{ Text = 'la clave era "mi casa"'; Expected = 'la clave era [REDACTED]' }
+        @{ Text = 'Your PIN is 4821'; Expected = 'Your PIN is [REDACTED]' }
+    ) {
+        Protect-CCFSensitiveData -InputData $Text | Should -BeExactly $Expected
+    }
+
+    It 'keeps <Text>' -TestCases @(@{ Text = 'secretary=Ana' }, @{ Text = 'pass=3 fail=0' }, @{ Text = '<name>Ana</name>' }, @{ Text = 'enclave: x' },
+        @{ Text = 'the password is incorrect' }, @{ Text = 'la contrasena es obligatoria' }, @{ Text = 'palabra clave: seguridad' }, @{ Text = 'quien tenga su clave: webs falsas' }) {
         Protect-CCFSensitiveData -InputData $Text | Should -BeExactly $Text
     }
 

@@ -18,6 +18,7 @@ Generated from the comment-based help by `Docs/New-ApiReference.ps1`. In PowerSh
 | [`Merge-CCFConfig`](#merge-ccfconfig) | Merges one configuration object into another, recursively. |
 | [`Protect-CCFLogFile`](#protect-ccflogfile) | Writes a redacted copy of a log or transcript file. |
 | [`Protect-CCFSensitiveData`](#protect-ccfsensitivedata) | Returns a copy of the data with passwords, tokens, keys and other secrets replaced by [REDACTED]. |
+| [`Register-CCFChainAnchor`](#register-ccfchainanchor) | Runs a script block with every new chain head, to save it where the program that writes the log cannot change it. |
 | [`Register-CCFLogProvider`](#register-ccflogprovider) | Sends log entries to your own script block instead of the default console output. |
 | [`Register-CCFRedactionPattern`](#register-ccfredactionpattern) | Adds a regular expression whose matches are redacted, for secret formats specific to your environment. |
 | [`Register-CCFSecret`](#register-ccfsecret) | Registers values that must never appear in a log, wherever they show up. |
@@ -332,7 +333,7 @@ Moves the logs and user settings of this session to D:\AppData\Backup.
 Sets the log file for the session and rotates it when it is too large.
 
 ```powershell
-Initialize-CCFLogger [[-FileName] <string>] [[-Path] <string>] [[-MaxMB] <int>] [[-MaxRolling] <int>] [[-Chain] <string[]>] [[-ChainId] <string>] [-JsonOutput] [-Background] [<CommonParameters>]
+Initialize-CCFLogger [[-FileName] <string>] [[-Path] <string>] [[-MaxMB] <int>] [[-MaxRolling] <int>] [[-Chain] <string[]>] [[-ChainId] <string>] [-JsonOutput] [-Background] [-Strict] [<CommonParameters>]
 ```
 
 Until this runs, Write-CCFLog writes System messages to the console only. Afterwards
@@ -355,6 +356,7 @@ CCF_<Category>.log file in the same folder.
 | `-Background` | Write log files from a background worker, so Write-CCFLog returns without waiting for the disk. Entries keep their order and are written in batches with the same lock and rotation. The queue holds 10,000 entries; when it is full, Write-CCFLog waits, so no entry is dropped. ERROR and CRITICAL entries, Security and Audit records and entries logged with -NoBuffer wait until they are in the file. The queue is written out when PowerShell exits normally, when the module is removed, by Stop-CCFLogWriter and when Initialize-CCFLogger runs again without -Background; entries still queued when the process is killed are lost. See Get-CCFLogWriter and Wait-CCFLogWriter. |
 | `-Chain` | Categories whose log files are tamper-evident, for example 'Audit' and 'Security': every line ends with a hash of itself and of the line before, so Test-CCFLogChain finds a line that was changed, inserted or deleted. Use the category name, or 'System' for the session file. These entries are always written directly, also with -Background. |
 | `-ChainId` | Identifier of who writes the chain (letters, digits, '.', '-' and '_'), added to every chained line inside what is hashed. With it, Test-CCFLogChain -ChainId tells lines of another program or another copy apart. |
+| `-Strict` | Entries of the chained categories, and Security and Audit records, that cannot be written throw an error instead of a warning, so a script can stop before doing something it could not record. |
 
 **Example 1**
 
@@ -637,6 +639,34 @@ Write-PSFMessage -Message (Protect-CCFSensitiveData "Calling $uri with $headers"
 ```
 
 Redacts the message before PSFramework writes it.
+
+## Register-CCFChainAnchor
+
+Runs a script block with every new chain head, to save it where the program that writes the log cannot change it.
+
+```powershell
+Register-CCFChainAnchor [[-ScriptBlock] <scriptblock>] [[-MinimumSeconds] <int>] [<CommonParameters>]
+```
+
+After each line of a chained category is written (Initialize-CCFLogger -Chain), the script block receives an
+object with Path, Category, Hash, ChainId and Time (UTC). Save it somewhere the log's writer cannot change:
+an event log, another machine, a message. Test-CCFLogChain -ExpectedLastHash with those objects then finds
+lines deleted from the end, which the chain alone cannot show.
+A failure in the script block never stops logging: it is counted, and Test-CCFHealth reports it.
+Without -ScriptBlock, removes the registered one.
+
+| Parameter | Description |
+|---|---|
+| `-ScriptBlock` | The script block. It receives the anchor object as its only argument. |
+| `-MinimumSeconds` | Run it at most once in this many seconds for each log (the default, 0, runs it for every line). The heads skipped are not lost: the next one covers them, but lines deleted in between cannot be told apart. |
+
+**Example 1**
+
+```powershell
+Register-CCFChainAnchor -ScriptBlock { param($a) Write-EventLog -LogName Application -Source MyApp -EventId 1000 -Message "$($a.Category) $($a.Hash)" }
+```
+
+Keeps every head of the chained logs in the Application event log.
 
 ## Register-CCFLogProvider
 
@@ -1009,8 +1039,9 @@ Test-CCFHealth [<CommonParameters>]
 ```
 
 Returns an object with Timestamp, Status ("OK" or "DEGRADED") and Checks, one entry per
-component (Logging, Configuration, Execution, Plugins), one for the Logs folder and,
-with background writing, one for the writer (running, with no failed writes).
+component (Logging, and Configuration, Execution and Plugins when their files are present), one for the
+Logs folder, one for the chain anchor when one is registered (no failures) and, with background writing,
+one for the writer (running, with no failed writes).
 Status is DEGRADED when any check fails. Use it at the start of a script, or in a
 monitoring job, to fail early when the environment is not usable.
 
@@ -1035,7 +1066,7 @@ Lists the checks that failed.
 Checks that nobody has changed, inserted or deleted lines of a log written with Initialize-CCFLogger -Chain.
 
 ```powershell
-Test-CCFLogChain [-Path] <string> [[-ExpectedLastHash] <string[]>] [[-ChainId] <string>] [-IncludeRotated] [<CommonParameters>]
+Test-CCFLogChain [-Path] <string> [[-ExpectedLastHash] <Object[]>] [[-ChainId] <string>] [-IncludeRotated] [<CommonParameters>]
 ```
 
 Recomputes the hash of every chained line from the one before. Returns Path, Entries (chained lines),
@@ -1044,14 +1075,16 @@ identifier of the last line). Lines written
 before the chain was enabled are skipped; an unchained line after a chained one breaks the chain.
 With -IncludeRotated the rotated copies (.N down to .1) are checked first and the chain must run across
 them from the start; otherwise the first chained line of the file is taken as given, because the line
-before it is in a rotated copy. Deleting the last lines is not visible here: compare LastHash with a
+before it is in a rotated copy. When rotation deleted the oldest copy, the copy left starts from the hash
+recorded in its first line, and ArchivedUntil is the time of the last line deleted.
+Deleting the last lines is not visible here: compare LastHash with a
 copy kept elsewhere (-ExpectedLastHash).
 
 | Parameter | Description |
 |---|---|
 | `-Path` | The log file, for example the path of CCF_Audit.log. |
 | `-IncludeRotated` | Also check the rotated copies and the link between them. |
-| `-ExpectedLastHash` | Last hashes saved earlier (Get-CCFLogChainHead), one or several. If the chain no longer contains any of them, lines were deleted or the log was rewritten. With hashes saved over time, a forged later copy cannot hide that an earlier one is gone. |
+| `-ExpectedLastHash` | Last hashes saved earlier (Get-CCFLogChainHead), one or several: strings, or objects with Hash and Time (when the hash was saved). A hash saved before the last line of a copy that rotation deleted is not required any more. With plain strings, every hash must still be in the log. If the chain no longer contains any of them, lines were deleted or the log was rewritten. With hashes saved over time, a forged later copy cannot hide that an earlier one is gone. |
 | `-ChainId` | The identifier this log must carry (Initialize-CCFLogger -ChainId). From the first line that has one, every line must have this one: a line written by another program, or by another copy of the same program, breaks the chain. Keep the identifier where the log's writer cannot change it, and pass only the saved hashes that belong to it: an identifier read from the log itself proves nothing. |
 
 **Example 1**
@@ -1143,7 +1176,7 @@ Makes sure the entry is in the file before the logs are copied.
 Records who did what, on which resource, in CCF_Audit.log.
 
 ```powershell
-Write-CCFAuditRecord [-Action] <string> [-User] <string> [[-Resource] <string>] [[-Outcome] <string>] [[-Metadata] <hashtable>] [<CommonParameters>]
+Write-CCFAuditRecord [-Action] <string> [-User] <string> [[-Resource] <string>] [[-Outcome] <string>] [[-Metadata] <hashtable>] [-Strict] [<CommonParameters>]
 ```
 
 Logs "[AUDIT] <User> <Action> <Resource>" at INFO level in the Audit category, with the
@@ -1157,6 +1190,7 @@ deletions or configuration changes. The alias Log-Audit is kept for older script
 | `-Resource` | Optional target of the action, for example a file path. |
 | `-Outcome` | Success (the default) or Failure. |
 | `-Metadata` | Optional extra data. |
+| `-Strict` | Throw an error if the record cannot be written, instead of a warning. |
 
 **Example 1**
 
@@ -1196,7 +1230,7 @@ Logs "[Startup] Cannot find path ..." with the stack trace.
 Writes a log entry to the console, the registered providers and the log file.
 
 ```powershell
-Write-CCFLog [-Message] <string> [-Level <string>] [-Color <string>] [-Data <hashtable>] [-Category <string>] [-NoBuffer] [<CommonParameters>]
+Write-CCFLog [-Message] <string> [-Level <string>] [-Color <string>] [-Data <hashtable>] [-Category <string>] [-NoBuffer] [-Strict] [<CommonParameters>]
 ```
 
 Ignores the message if its level is below the one set with Set-CCFLogLevel. Otherwise
@@ -1223,6 +1257,7 @@ with -NoBuffer wait until they are in the file.
 | `-Data` | Optional structured data. It is redacted, passed to the providers and written to the file in JSON mode (Initialize-CCFLogger -JsonOutput). |
 | `-Category` | Log category, which also names the log file. Letters, digits, dot, dash and underscore. Defaults to System. |
 | `-NoBuffer` | With background writing (Initialize-CCFLogger -Background), wait until this entry is in the file before returning. Without background writing every entry is written before Write-CCFLog returns, so it has no effect. |
+| `-Strict` | Throw an error when the entry cannot be written to its file, instead of a warning. Initialize-CCFLogger -Strict does this for the chained categories and for Security and Audit records. |
 
 **Example 1**
 
@@ -1415,7 +1450,7 @@ Logs a warning with the drive as data.
 Records a security event, such as an attack attempt or a blocked action, in CCF_Security.log.
 
 ```powershell
-Write-CCFSecurityRecord [-Type] <string> [-Source] <string> [[-Payload] <string>] [[-Severity] <string>] [[-Metadata] <hashtable>] [<CommonParameters>]
+Write-CCFSecurityRecord [-Type] <string> [-Source] <string> [[-Payload] <string>] [[-Severity] <string>] [[-Metadata] <hashtable>] [-Strict] [<CommonParameters>]
 ```
 
 Logs "[SECURITY] <Type> from <Source>" in the Security category, with the type, source,
@@ -1430,6 +1465,7 @@ scripts.
 | `-Payload` | Optional offending value. It is logged as data, after redaction. |
 | `-Severity` | WARN (the default), ERROR or CRITICAL. |
 | `-Metadata` | Optional extra data. |
+| `-Strict` | Throw an error if the record cannot be written, instead of a warning. |
 
 **Example 1**
 

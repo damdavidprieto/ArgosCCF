@@ -181,8 +181,12 @@ function Get-CCFPath {
 # The Core files are dot-sourced into this module's scope, so their functions can call each
 # other and are exported only through the list below (and the manifest).
 $corePath = Join-Path $PSScriptRoot 'Core'
-foreach ($coreFile in 'Redaction.ps1', 'Logging.ps1', 'Configuration.ps1', 'Plugins.ps1', 'Execution.ps1') {
-    . (Join-Path $corePath $coreFile)
+foreach ($coreFile in 'Redaction.ps1', 'Logging.ps1') { . (Join-Path $corePath $coreFile) }
+# Deprecated components (removed in 2.0.0). A copy of the module that only needs logging and redaction can leave
+# their files out: less code runs, which matters for scripts that run as administrator.
+foreach ($coreFile in 'Configuration.ps1', 'Plugins.ps1', 'Execution.ps1') {
+    $file = Join-Path $corePath $coreFile
+    if (Test-Path -LiteralPath $file) { . $file }
 }
 
 Initialize-CCFEnvironment
@@ -191,7 +195,8 @@ Initialize-CCFEnvironment
 $ExecutionContext.SessionState.Module.OnRemove = { Stop-CCFLogWriter -TimeoutSeconds 10 }
 
 # Keep in sync with FunctionsToExport / AliasesToExport in ArgosCCF.psd1 (tests/QA checks it).
-Export-ModuleMember -Function @(
+# Only what is defined: a copy without the deprecated components exports the rest.
+$exportFunctions = @(
     'Get-CCFPath', 'Initialize-CCFEnvironment',
     'Set-CCFLogLevel', 'Register-CCFLogProvider', 'Register-CCFSIEMProvider', 'Initialize-CCFLogger',
     'Write-CCFLog', 'Write-CCFLogInfo', 'Write-CCFLogSuccess', 'Write-CCFLogWarn', 'Write-CCFLogError',
@@ -204,10 +209,12 @@ Export-ModuleMember -Function @(
     'Get-CCFRedactionPattern', 'Protect-CCFLogFile',
     'Get-CCFConfig', 'Set-CCFUserConfig', 'Merge-CCFConfig', 'Remove-CCFConfigCache', 'Test-CCFConfigSchema',
     'Get-CCFPlugin', 'Invoke-CCFPlugin', 'Confirm-CCFPluginSignature',
-    'Invoke-CCFParallel'
-) -Alias @(
+    'Invoke-CCFParallel', 'Register-CCFChainAnchor'
+)
+$exportAliases = @(
     'Log-Info', 'Log-Success', 'Log-Warn', 'Log-Error', 'Log-Critical', 'Log-Debug', 'Log-Header',
     'Log-Attack', 'Log-Audit', 'Init-CCFLogger', 'Catch-CCFError', 'Redact-CCFSensitiveData',
     'Test-CCFHighEntropy', 'Remove-OldCCFLogs', 'Clear-CCFConfigCache', 'Test-CCFPluginSignature',
     'Get-CCFPlugins'
 )
+Export-ModuleMember -Function @($exportFunctions | Where-Object { Test-Path -LiteralPath "function:$_" }) -Alias @($exportAliases | Where-Object { Test-Path -LiteralPath "alias:$_" })

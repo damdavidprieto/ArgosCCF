@@ -77,6 +77,11 @@ detected. Do not log secrets on purpose, and register the ones your script handl
 
 ## Log integrity
 
+- **Tamper-evident logs.** `Initialize-CCFLogger -Chain` hashes every line with the one before it.
+  `Register-CCFChainAnchor` passes each new head to your code, to keep it out of the writer's reach, and
+  `Test-CCFLogChain` checks the chain, also across rotated copies: when rotation deletes the oldest copy, the next
+  file records where it ended, so retention is not mistaken for tampering. `-Strict` makes an entry that cannot be
+  written throw an error.
 - **One entry, one line.** Line breaks in messages are written as the text `\n`, and other control
   characters are removed, so a message cannot add fake entries to a log file.
 - **No terminal escape sequences.** ANSI escape sequences are removed, so a message cannot recolor

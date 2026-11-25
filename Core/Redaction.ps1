@@ -237,6 +237,12 @@ $script:CCFBuiltInRules = @(
         Regex       = Get-CCFOptionRegex -Option 'key(?:material)?\s*=\s*'
     }
     @{
+        Name        = 'SecretInProse'
+        Description = 'A password named in a sentence ("the password is X", "la contrasena es X") when X has a digit or a symbol, or is quoted'
+        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern '(?<k>\b(?:password|passphrase|passcode|pin|contrase(?:n|\u00f1|n\u0303)a|clave)\s+(?:is|was|will be|es|era|ser(?:a|\u00e1)|fue)\s*:?\s+)(?:"[^"]+"|''[^'']+''|(?=\S*[0-9!#$%&*+?@^~])[^\s,;.]+(?:\.[^\s,;.]+)*)'
+        Replacement = '${k}[REDACTED]'
+    }
+    @{
         Name        = 'JsonWebToken'
         Description = 'JSON web tokens (eyJ....eyJ....signature)'
         Regex       = Get-CCFCompiledRegex -Pattern '\beyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*'
@@ -359,6 +365,9 @@ function Invoke-CCFTextRedaction {
                 param($m)
                 # Test results ("pass=3 fail=0") are not passwords.
                 if ($m.Groups['k'].Value -eq 'pass' -and $m.Groups['v'].Value -match '^\d{1,3}$') { return $m.Value }
+                # In Spanish, "clave" is also an ordinary word ("palabra clave: seguridad"): only values with a digit or
+                # a symbol count, or quoted ones.
+                if ($m.Groups['k'].Value -ieq 'clave' -and $m.Groups['v'].Success -and $m.Groups['v'].Value -notmatch '[0-9!#$%&*+?@^~=]') { return $m.Value }
                 $value = if ($m.Groups['dq'].Success) { '"[REDACTED]"' } elseif ($m.Groups['sq'].Success) { "'[REDACTED]'" } else { '[REDACTED]' }
                 $m.Groups['q'].Value + $m.Groups['k'].Value + $m.Groups['q'].Value + $m.Groups['sep'].Value + $value
             })
