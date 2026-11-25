@@ -18,6 +18,7 @@ AfterAll {
         $script:LogsPathOverride = $null
         $script:CurrentLogFile = $null
         $script:CCFChainCategories = @()
+        $script:CCFChainId = ''
         $script:JsonOutput = $false
         $script:MaxLogSizeMB = 10
         $script:MaxLogRolling = 5
@@ -119,5 +120,60 @@ Describe 'Chained logs' {
         $r = Test-CCFLogChain -Path (Join-Path $folder 'CCF_Audit.log')
         $r.Valid | Should -BeTrue
         $r.Entries | Should -Be 100
+    }
+}
+
+Describe 'Chain identifier' {
+    BeforeAll {
+        function Add-Entry([string]$Folder, [string]$Id, [switch]$Json) {
+            $extra = @{}
+            if ($Id) { $extra.ChainId = $Id }
+            Initialize-CCFLogger -Path $Folder -Chain Audit -JsonOutput:$Json @extra
+            Write-CCFAuditRecord -Action 'Change' -User 'tester' -Resource 'item'
+            return Join-Path $Folder 'CCF_Audit.log'
+        }
+    }
+
+    It 'is part of every line and can be checked (JSON: <Json>)' -TestCases @(@{ Json = $false }, @{ Json = $true }) {
+        $folder = Join-Path $TestDrive "id-$Json"
+        $null = Add-Entry $folder 'copy-a' -Json:$Json
+        $log = Add-Entry $folder 'copy-a' -Json:$Json
+        $r = Test-CCFLogChain -Path $log -ChainId 'copy-a' -IncludeRotated
+        $r.Valid | Should -BeTrue
+        $r.ChainId | Should -Be 'copy-a'
+        (Test-CCFLogChain -Path $log).Valid | Should -BeTrue
+        (Test-CCFLogChain -Path $log -ChainId 'copy-b').Valid | Should -BeFalse
+        $head = Get-CCFLogChainHead -Path $log -AsObject
+        $head.ChainId | Should -Be 'copy-a'
+        $head.Hash | Should -Be (Get-CCFLogChainHead -Path $log)
+        if ($Json) { (Get-Content $log | Select-Object -Last 1 | ConvertFrom-Json).ChainId | Should -Be 'copy-a' }
+    }
+
+    It 'finds a line of another copy, and one without identifier after it starts' {
+        $folder = Join-Path $TestDrive 'mixed'
+        $null = Add-Entry $folder 'copy-a'
+        $log = Add-Entry $folder 'copy-b'
+        (Test-CCFLogChain -Path $log -ChainId 'copy-a').BrokenAt | Should -Match ':2$'
+        $folder = Join-Path $TestDrive 'none-after'
+        $null = Add-Entry $folder 'copy-a'
+        $log = Add-Entry $folder ''
+        (Test-CCFLogChain -Path $log -ChainId 'copy-a').BrokenAt | Should -Match ':2$'
+    }
+
+    It 'accepts lines from before the identifier, but not a log without any' {
+        $folder = Join-Path $TestDrive 'upgrade'
+        $log = Add-Entry $folder ''
+        (Test-CCFLogChain -Path $log -ChainId 'copy-a').Valid | Should -BeFalse
+        $null = Add-Entry $folder 'copy-a'
+        (Test-CCFLogChain -Path $log -ChainId 'copy-a' -IncludeRotated).Valid | Should -BeTrue
+    }
+
+    It 'cannot be changed without breaking the chain, and refuses unsafe identifiers' {
+        $folder = Join-Path $TestDrive 'edit'
+        $null = Add-Entry $folder 'copy-a'
+        $log = Add-Entry $folder 'copy-a'
+        Set-Content -Path $log -Value @(Get-Content $log | ForEach-Object { $_.Replace('#id=copy-a', '#id=copy-b') })
+        (Test-CCFLogChain -Path $log -ChainId 'copy-b' -IncludeRotated).Valid | Should -BeFalse
+        { Initialize-CCFLogger -Path $folder -ChainId 'a b' } | Should -Throw
     }
 }

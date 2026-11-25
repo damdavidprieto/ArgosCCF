@@ -50,6 +50,118 @@ Describe 'Known formats' {
     }
 }
 
+Describe 'Command lines' {
+    It 'redacts <Text>' -TestCases @(
+        @{ Text = 'net user juan Zanahoria9 /add'; Expected = 'net user juan [REDACTED] /add' }
+        @{ Text = 'C:\Windows\System32\net.exe user "juan perez" "Zanahoria9 x" /add'; Expected = 'C:\Windows\System32\net.exe user "juan perez" [REDACTED] /add' }
+        @{ Text = 'net user a Zanahoria9 & net user b Zanahoria9'; Expected = 'net user a [REDACTED] & net user b [REDACTED]' }
+        @{ Text = 'net use Z: \\nas\d /user:juan Zanahoria9'; Expected = 'net use Z: \\nas\d /user:juan [REDACTED]' }
+        @{ Text = 'net use \\nas\d Zanahoria9 /user:juan'; Expected = 'net use \\nas\d [REDACTED] /user:juan' }
+        @{ Text = 'rasdial "Mi VPN" juan Zanahoria9'; Expected = 'rasdial "Mi VPN" juan [REDACTED]' }
+        @{ Text = 'schtasks /create /tn x /ru juan /rp Zanahoria9 /f'; Expected = 'schtasks /create /tn x /ru juan /rp [REDACTED] /f' }
+        @{ Text = '"C:\Windows\system32\schtasks.exe" /s pc /u juan /p Zanahoria9'; Expected = '"C:\Windows\system32\schtasks.exe" /s pc /u juan /p [REDACTED]' }
+        @{ Text = 'cmdkey /add:nas /user:juan /pass:Zanahoria9;x'; Expected = 'cmdkey /add:nas /user:juan /pass:[REDACTED]' }
+        @{ Text = 'PsExec64.exe \\pc -u juan -p Zanahoria9 cmd'; Expected = 'PsExec64.exe \\pc -u juan -p [REDACTED] cmd' }
+        @{ Text = 'x.exe -Password Zanahoria9 -v'; Expected = 'x.exe -Password [REDACTED] -v' }
+        @{ Text = 'x -AdminPassword "Zanahoria9 y" z'; Expected = 'x -AdminPassword [REDACTED] z' }
+        @{ Text = 'x --client-secret Zanahoria9'; Expected = 'x --client-secret [REDACTED]' }
+        @{ Text = 'x --token=Zanahoria9,y z'; Expected = 'x --token=[REDACTED] z' }
+        @{ Text = 'plink -pw Zanahoria9 host'; Expected = 'plink -pw [REDACTED] host' }
+        @{ Text = 'x -Password "Zanahoria9 sin cerrar'; Expected = 'x -Password [REDACTED]' }
+        @{ Text = 'sqlcmd -S s -U sa -P Zanahoria9 -Q q'; Expected = 'sqlcmd -S s -U sa -P [REDACTED] -Q q' }
+        @{ Text = 'sqlcmd -S s -PZanahoria9'; Expected = 'sqlcmd -S s -P[REDACTED]' }
+        @{ Text = 'mysql -u root -pZanahoria9 db'; Expected = 'mysql -u root -p[REDACTED] db' }
+        @{ Text = 'mysqldump -u root -p"Zanahoria9 z" db'; Expected = 'mysqldump -u root -p[REDACTED] db' }
+        @{ Text = 'curl -u juan:Zanahoria9 https://h.example?a=1'; Expected = 'curl -u juan:[REDACTED] https://h.example?a=1' }
+        @{ Text = 'curl https://h.example?a=1&b=2 -su juan:Zanahoria9'; Expected = 'curl https://h.example?a=1&b=2 -su juan:[REDACTED]' }
+        @{ Text = 'docker login -u juan -p Zanahoria9 reg.example'; Expected = 'docker login -u juan -p [REDACTED] reg.example' }
+        @{ Text = 'sshpass -p Zanahoria9 ssh h'; Expected = 'sshpass -p [REDACTED] ssh h' }
+        @{ Text = '7z a -pZanahoria9 f.7z d'; Expected = '7z a -p[REDACTED] f.7z d' }
+        @{ Text = 'openssl rsa -passin pass:Zanahoria9 -in k'; Expected = 'openssl rsa -passin pass:[REDACTED] -in k' }
+        @{ Text = 'netsh wlan set hostednetwork key=Zanahoria9 x'; Expected = 'netsh wlan set hostednetwork key=[REDACTED] x' }
+        @{ Text = "ConvertTo-SecureString 'Zanahoria9' -AsPlainText -Force"; Expected = 'ConvertTo-SecureString [REDACTED] -AsPlainText -Force' }
+        @{ Text = 'ConvertTo-SecureString -AsPlainText -Force -String Zanahoria9'; Expected = 'ConvertTo-SecureString -AsPlainText -Force -String [REDACTED]' }
+        @{ Text = "'Zanahoria9' | ConvertTo-SecureString -AsPlainText"; Expected = '[REDACTED] | ConvertTo-SecureString -AsPlainText' }
+    ) {
+        $result = Protect-CCFSensitiveData -InputData $Text
+        $result | Should -Not -Match 'Zanahoria9'
+        $result | Should -BeExactly $Expected
+    }
+
+    It 'redacts a quoted curl user' {
+        Protect-CCFSensitiveData 'curl -u "juan:Zanahoria9 z" https://h.example' | Should -Not -Match 'Zanahoria9'
+        Protect-CCFSensitiveData "curl --user='juan:Zanahoria9' https://h.example" | Should -Not -Match 'Zanahoria9'
+    }
+
+    It 'keeps <Text>' -TestCases @(
+        @{ Text = 'net user juan /active:yes' }
+        @{ Text = 'net user juan * /add' }
+        @{ Text = 'net use Z: \\nas\d /persistent:yes' }
+        @{ Text = 'net use Z: /delete' }
+        @{ Text = 'mysql -u root -p db' }
+        @{ Text = 'ssh -p 2222 host' }
+        @{ Text = 'mkdir -p /tmp/a' }
+        @{ Text = 'docker run -p 8080:80 -u 1000:1000 img' }
+        @{ Text = 'sqlcmd -S s -p 1' }
+        @{ Text = 'git push -u origin main' }
+        @{ Text = 'Set-LocalUser juan -PasswordNeverExpires 1' }
+        @{ Text = 'x --token-file /run/t --password-stdin' }
+        @{ Text = 'x -Password -Force' }
+        @{ Text = 'ConvertTo-SecureString $texto -AsPlainText' }
+        @{ Text = 'schtasks /query /tn x' }
+        @{ Text = 'grep -e abcdefgh file' }
+        @{ Text = 'powershell -ExecutionPolicy Bypass -File C:\x.ps1' }
+        @{ Text = 'C:\Windows\System32\consent.exe 10356 1194 00000214461F8550' }
+    ) {
+        Protect-CCFSensitiveData -InputData $Text | Should -BeExactly $Text
+    }
+
+    It 'replaces an encoded command by the same fingerprint every time' {
+        $a = Protect-CCFSensitiveData '"C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile -EncodedCommand dwBoAG8AYQBtAGkAIAAvAGEAbABsAA=='
+        $b = Protect-CCFSensitiveData 'powershell.exe -enc dwBoAG8AYQBtAGkAIAAvAGEAbABsAA=='
+        $a | Should -Match '-EncodedCommand \[ENCODED [0-9a-f]{8} 32 chars\]$'
+        $a | Should -Not -Match 'dwBoAG8'
+        [regex]::Match($a, '\[ENCODED.*').Value | Should -Be ([regex]::Match($b, '\[ENCODED.*').Value)
+        Protect-CCFSensitiveData 'pwsh -e dwBoAG8AYQBtAGkAIAAvAGMA' | Should -Not -Match ([regex]::Match($a, '[0-9a-f]{8}').Value)
+    }
+
+    It 'stays fast on a long line' {
+        $text = 'schtasks ' + ('C:\Windows\System32\cmd.exe /c algo -p -u /p --x ' * 60)
+        $watch = [System.Diagnostics.Stopwatch]::StartNew()
+        Protect-CCFSensitiveData $text | Should -Not -Match 'could not be checked'
+        $watch.ElapsedMilliseconds | Should -BeLessThan 2000
+    }
+}
+
+Describe 'XML and Spanish keys' {
+    It 'redacts <Text>' -TestCases @(
+        @{ Text = '<password>Zanahoria9</password>'; Expected = '<password>[REDACTED]</password>' }
+        @{ Text = '<db:clientSecret id="1">Zanahoria9</db:clientSecret>'; Expected = '<db:clientSecret id="1">[REDACTED]</db:clientSecret>' }
+        @{ Text = '<pwd><![CDATA[Zanahoria9<]]></pwd>'; Expected = '<pwd>[REDACTED]</pwd>' }
+        @{ Text = 'contrasena: Zanahoria9'; Expected = 'contrasena: [REDACTED]' }
+        @{ Text = "contrase$([char]0xF1)a=Zanahoria9"; Expected = "contrase$([char]0xF1)a=[REDACTED]" }
+        @{ Text = "CONTRASE$([char]0xD1)A=Zanahoria9"; Expected = "CONTRASE$([char]0xD1)A=[REDACTED]" }
+        @{ Text = 'clave: Zanahoria9'; Expected = 'clave: [REDACTED]' }
+    ) {
+        Protect-CCFSensitiveData -InputData $Text | Should -BeExactly $Expected
+    }
+
+    It 'redacts object keys in Spanish' {
+        $r = Protect-CCFSensitiveData @{ "Contrase$([char]0xF1)a" = 'Zanahoria9'; Clave = 'Zanahoria9'; Enclave = 'x' }
+        $r["Contrase$([char]0xF1)a"] | Should -Be '[REDACTED]'
+        $r.Clave | Should -Be '[REDACTED]'
+        $r.Enclave | Should -Be 'x'
+    }
+
+    It 'keeps <Text>' -TestCases @(@{ Text = 'secretary=Ana' }, @{ Text = 'pass=3 fail=0' }, @{ Text = '<name>Ana</name>' }, @{ Text = 'enclave: x' }) {
+        Protect-CCFSensitiveData -InputData $Text | Should -BeExactly $Text
+    }
+
+    It 'still redacts pass with a real value' {
+        Protect-CCFSensitiveData 'pass=1234' | Should -BeExactly 'pass=[REDACTED]'
+    }
+}
+
 Describe 'Values that are not secrets' {
     It 'keeps <Case>' -TestCases @(
         @{ Case = 'a GUID'; Text = 'Run 3f2504e0-4f89-11d3-9a0c-0305e82c3301 done' }

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-25
+
+### Added
+- **Secrets in command lines**: `-Password x`, `--token x`, `/pass:x` and similar parameters in any program, and the
+  options of known programs: `net user`, `net use`, `rasdial`, `schtasks /rp` and other Windows tools, PsTools, `sqlcmd`,
+  `mysql`, `curl -u`, container logins, `sshpass`, 7-Zip, RAR, `zip`, `openssl`, `certutil` and `netsh`. Short options
+  such as `-p` are only read that way for programs where they carry a password.
+- **`ConvertTo-SecureString` literals** and **XML elements** whose name is a secret.
+- **Spanish keys**: `contrasena` (with or without the tilde), `clave` and `credencial`.
+- **`-EncodedCommand` fingerprints**: the command becomes `[ENCODED 1a2b3c4d 120 chars]`, so a repeated command can be
+  recognized without keeping it.
+- **`Initialize-CCFLogger -ChainId`**, `Test-CCFLogChain -ChainId` and `Get-CCFLogChainHead -AsObject`: chained lines can
+  carry who writes them, to tell another copy of a program from deleted lines.
+
+### Fixed
+- `secretary=...` and test results such as `pass=3 fail=0` are no longer redacted.
+- The command table in the README lists the chain commands.
+
 ## [1.5.0] - 2026-11-22
 
 ### Added

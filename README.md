@@ -20,6 +20,8 @@ Write-CCFLogInfo "GET https://admin:S3cret@files.contoso.com with Authorization:
   spaces), connection strings, credentials in URLs, `Authorization` headers, bearer tokens, private key
   blocks, JSON web tokens, and GitHub, AWS, Slack, Stripe, Google, npm and `sk-` keys. Random-looking
   strings are caught too, while GUIDs, SIDs, hashes, paths and host names are left alone.
+- **Command lines**: `net user`, `schtasks /rp`, `curl -u`, `-Password x`, `--token x` and more, for scripts that log what
+  they or others run. A PowerShell `-EncodedCommand` is replaced by a short fingerprint.
 - **Your own secrets, wherever they appear**: `Register-CCFSecret` takes the values your script reads
   (or a `PSCredential`) and redacts them in any format, even inside an error message from another
   module. `Register-CCFRedactionPattern` adds formats specific to your organization.
@@ -90,7 +92,7 @@ More in [`Examples/`](Examples/). Each example runs as part of the tests.
 |---|---|
 | Redaction | `Protect-CCFSensitiveData`, `Protect-CCFLogFile`, `Register-CCFSecret`, `Unregister-CCFSecret`, `Register-CCFRedactionPattern`, `Unregister-CCFRedactionPattern`, `Get-CCFRedactionPattern`, `Test-CCFEntropyContent` |
 | Logging | `Initialize-CCFLogger`, `Write-CCFLog`, `Write-CCFLogInfo`, `Write-CCFLogSuccess`, `Write-CCFLogWarn`, `Write-CCFLogError`, `Write-CCFLogCritical`, `Write-CCFLogDebug`, `Write-CCFLogHeader`, `Set-CCFLogLevel`, `Register-CCFLogProvider`, `Register-CCFSIEMProvider`, `Remove-CCFOldLog`, `Get-CCFLogWriter`, `Wait-CCFLogWriter`, `Stop-CCFLogWriter` |
-| Security and audit records | `Write-CCFSecurityRecord`, `Write-CCFAuditRecord`, `Write-CCFErrorRecord` |
+| Security and audit records | `Write-CCFSecurityRecord`, `Write-CCFAuditRecord`, `Write-CCFErrorRecord`, `Test-CCFLogChain`, `Get-CCFLogChainHead` |
 | Environment | `Get-CCFPath`, `Initialize-CCFEnvironment`, `Test-CCFHealth`, `Submit-CCFHeartbeat` |
 | Deprecated (removed in 2.0.0) | Configuration: `Get-CCFConfig`, `Set-CCFUserConfig`, `Merge-CCFConfig`, `Test-CCFConfigSchema`, `Remove-CCFConfigCache`. Plugins: `Get-CCFPlugin`, `Invoke-CCFPlugin`, `Confirm-CCFPluginSignature`. Parallel execution: `Invoke-CCFParallel` |
 

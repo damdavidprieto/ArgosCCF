@@ -118,7 +118,8 @@ function Add-CCFLogText {
         [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text,
         [int]$MaxMB = 10,
         [int]$MaxRolling = 5,
-        [switch]$Chain
+        [switch]$Chain,
+        [string]$ChainId = ''
     )
 
     $mutex = [System.Threading.Mutex]::new($false, (Get-CCFFileMutexName -Path $Path))
@@ -130,7 +131,7 @@ function Add-CCFLogText {
 
         Invoke-CCFLogRotation -Path $Path -MaxMB $MaxMB -MaxRolling $MaxRolling
         # Chained logs: the hash is computed inside the lock, from the line the file really ends with.
-        if ($Chain) { $Text = Add-CCFChainToText -Path $Path -Text $Text }
+        if ($Chain) { $Text = Add-CCFChainToText -Path $Path -Text $Text -ChainId $ChainId }
         for ($attempt = 1; $attempt -le 5; $attempt++) {
             try {
                 [System.IO.File]::AppendAllText($Path, $Text, $script:CCFLogEncoding)
@@ -161,6 +162,8 @@ function Add-CCFLogText {
 
 $script:CCFChainGenesis = '0' * 64
 $script:CCFChainCategories = @()
+# Who writes the chain (Initialize-CCFLogger -ChainId). It is part of the hashed text of every line.
+$script:CCFChainId = ''
 
 function Get-CCFChainHash {
     <#
@@ -192,6 +195,20 @@ function Split-CCFChainLine {
     return [pscustomobject]@{ Text = $Line; Hash = $null }
 }
 
+function Get-CCFChainLineId {
+    <#
+    .SYNOPSIS
+        The writer identifier of a chained line (its text without the hash), or '' when it has none.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text)
+    $m = [regex]::Match($Text, ' #id=([A-Za-z0-9._-]{1,64})$')
+    if (-not $m.Success) { $m = [regex]::Match($Text, ',"ChainId":"([A-Za-z0-9._-]{1,64})"\}$') }
+    if ($m.Success) { return $m.Groups[1].Value }
+    return ''
+}
+
 function Get-CCFLastChainHash {
     <#
     .SYNOPSIS
@@ -200,7 +217,11 @@ function Get-CCFLastChainHash {
     #>
     [CmdletBinding()]
     [OutputType([string])]
-    param([Parameter(Mandatory = $true)][string]$Path)
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        # Receives the text of that line, without its hash.
+        [ref]$LineText
+    )
     foreach ($file in @($Path, "$Path.1")) {
         if (-not [System.IO.File]::Exists($file)) { continue }
         $stream = [System.IO.File]::Open($file, 'Open', 'Read', 'ReadWrite')
@@ -214,8 +235,11 @@ function Get-CCFLastChainHash {
         finally { $stream.Dispose() }
         $lines = [System.Text.Encoding]::UTF8.GetString($buffer) -split "`r?`n"
         for ($i = $lines.Count - 1; $i -ge 0; $i--) {
-            $hash = (Split-CCFChainLine -Line $lines[$i]).Hash
-            if ($hash) { return $hash }
+            $part = Split-CCFChainLine -Line $lines[$i]
+            if ($part.Hash) {
+                if ($LineText) { $LineText.Value = $part.Text }
+                return $part.Hash
+            }
         }
     }
     return $script:CCFChainGenesis
@@ -231,12 +255,17 @@ function Add-CCFChainToText {
     [OutputType([string])]
     param(
         [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text,
+        [string]$ChainId = ''
     )
     $previous = Get-CCFLastChainHash -Path $Path
     $out = [System.Text.StringBuilder]::new()
     foreach ($line in ($Text -split "`r?`n")) {
         if ($line -eq '') { continue }
+        if ($ChainId) {
+            if ($line.StartsWith('{') -and $line.EndsWith('}')) { $line = $line.Substring(0, $line.Length - 1) + ",""ChainId"":""$ChainId""}" }
+            else { $line = "$line #id=$ChainId" }
+        }
         $hash = Get-CCFChainHash -Previous $previous -Line $line
         $chained = if ($line.StartsWith('{') -and $line.EndsWith('}')) { $line.Substring(0, $line.Length - 1) + ",""Chain"":""$hash""}" } else { "$line #chain=$hash" }
         $null = $out.Append($chained).Append([Environment]::NewLine)
@@ -252,7 +281,8 @@ function Test-CCFLogChain {
 
     .DESCRIPTION
         Recomputes the hash of every chained line from the one before. Returns Path, Entries (chained lines),
-        Valid, BrokenAt (the first line number that does not match, or $null), Reason and LastHash. Lines written
+        Valid, BrokenAt (the first line number that does not match, or $null), Reason, LastHash and ChainId (the
+        identifier of the last line). Lines written
         before the chain was enabled are skipped; an unchained line after a chained one breaks the chain.
         With -IncludeRotated the rotated copies (.N down to .1) are checked first and the chain must run across
         them from the start; otherwise the first chained line of the file is taken as given, because the line
@@ -270,6 +300,12 @@ function Test-CCFLogChain {
         them, lines were deleted or the log was rewritten. With hashes saved over time, a forged later copy
         cannot hide that an earlier one is gone.
 
+    .PARAMETER ChainId
+        The identifier this log must carry (Initialize-CCFLogger -ChainId). From the first line that has one,
+        every line must have this one: a line written by another program, or by another copy of the same
+        program, breaks the chain. Keep the identifier where the log's writer cannot change it, and pass only
+        the saved hashes that belong to it: an identifier read from the log itself proves nothing.
+
     .EXAMPLE
         Test-CCFLogChain -Path (Join-Path (Get-CCFPath -Target Logs) 'CCF_Audit.log') -IncludeRotated
 
@@ -280,14 +316,16 @@ function Test-CCFLogChain {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [switch]$IncludeRotated,
-        [string[]]$ExpectedLastHash
+        [string[]]$ExpectedLastHash,
+        [ValidatePattern('^[A-Za-z0-9._-]{1,64}$')]
+        [string]$ChainId
     )
     $files = @()
     if ($IncludeRotated) {
         for ($i = 100; $i -ge 1; $i--) { if ([System.IO.File]::Exists("$Path.$i")) { $files += "$Path.$i" } }
     }
     if ([System.IO.File]::Exists($Path)) { $files += $Path }
-    $result = [ordered]@{ Path = $Path; Entries = 0; Valid = $true; BrokenAt = $null; Reason = ''; LastHash = $null }
+    $result = [ordered]@{ Path = $Path; Entries = 0; Valid = $true; BrokenAt = $null; Reason = ''; LastHash = $null; ChainId = '' }
     $previous = if ($IncludeRotated) { $script:CCFChainGenesis } else { $null }
     $seen = @{}
     foreach ($file in $files) {
@@ -307,6 +345,12 @@ function Test-CCFLogChain {
                 $result.Valid = $false; $result.BrokenAt = "${file}:$number"; $result.Reason = 'The hash does not match the line and the one before it: this line, or one before it, was changed, inserted or deleted.'
                 return [pscustomobject]$result
             }
+            $lineId = Get-CCFChainLineId -Text $part.Text
+            if ($ChainId -and $lineId -ne $ChainId -and ($lineId -or $result.ChainId)) {
+                $result.Valid = $false; $result.BrokenAt = "${file}:$number"; $result.Reason = 'The line does not carry the expected identifier: it was written by another program or another copy.'
+                return [pscustomobject]$result
+            }
+            $result.ChainId = $lineId
             $previous = $part.Hash
             $seen[$part.Hash] = $true
             $result.LastHash = $part.Hash
@@ -314,6 +358,9 @@ function Test-CCFLogChain {
         }
     }
     $missing = @($ExpectedLastHash | Where-Object { $_ -and -not $seen.ContainsKey($_) })
+    if ($ChainId -and $result.Entries -gt 0 -and -not $result.ChainId) {
+        $result.Valid = $false; $result.Reason = 'No line carries the expected identifier.'
+    }
     if ($missing.Count) {
         $result.Valid = $false; $result.Reason = 'The saved last hash is no longer in the log: lines were deleted or the log was rewritten.'
     }
@@ -334,6 +381,9 @@ function Get-CCFLogChainHead {
     .PARAMETER Path
         The log file.
 
+    .PARAMETER AsObject
+        Returns an object with Path, Hash and ChainId instead of the hash, to save whose log the hash belongs to.
+
     .EXAMPLE
         $head = Get-CCFLogChainHead -Path $auditLog
         Test-CCFLogChain -Path $auditLog -ExpectedLastHash $head
@@ -341,10 +391,15 @@ function Get-CCFLogChainHead {
         Saves the head now and later checks that no line was removed since.
     #>
     [CmdletBinding()]
-    [OutputType([string])]
-    param([Parameter(Mandatory = $true)][string]$Path)
-    $hash = Get-CCFLastChainHash -Path $Path
+    [OutputType([string], [pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [switch]$AsObject
+    )
+    $line = [ref]''
+    $hash = Get-CCFLastChainHash -Path $Path -LineText $line
     if ($hash -eq $script:CCFChainGenesis) { return $null }
+    if ($AsObject) { return [pscustomobject]@{ Path = $Path; Hash = $hash; ChainId = (Get-CCFChainLineId -Text $line.Value) } }
     return $hash
 }
 
@@ -853,6 +908,10 @@ function Initialize-CCFLogger {
         with a hash of itself and of the line before, so Test-CCFLogChain finds a line that was changed,
         inserted or deleted. Use the category name, or 'System' for the session file. These entries are
         always written directly, also with -Background.
+    .PARAMETER ChainId
+        Identifier of who writes the chain (letters, digits, '.', '-' and '_'), added to every chained line inside
+        what is hashed. With it, Test-CCFLogChain -ChainId tells lines of another program or another copy apart.
+
     .EXAMPLE
         Initialize-CCFLogger -Chain Audit, Security
         Audit and Security records can be checked later with Test-CCFLogChain.
@@ -894,10 +953,14 @@ function Initialize-CCFLogger {
 
         [switch]$Background,
         [ValidateScript({ foreach ($c in $_) { if (-not (Test-CCFLogName -Name $c)) { throw "Chain categories must contain only letters, digits, '.', '-' and '_': $c" } }; $true })]
-        [string[]]$Chain = @()
+        [string[]]$Chain = @(),
+
+        [ValidatePattern('^[A-Za-z0-9._-]{1,64}$')]
+        [string]$ChainId
     )
 
     $script:CCFChainCategories = @($Chain)
+    $script:CCFChainId = "$ChainId"
     # Entries queued under the previous settings are written first.
     if ($Background) { Wait-CCFLogWriter } else { Stop-CCFLogWriter }
 
@@ -1078,7 +1141,7 @@ function Write-CCFLog {
         }
         if (-not $queued) {
             try {
-                Add-CCFLogText -Path $targetFile -Text $text -MaxMB $script:MaxLogSizeMB -MaxRolling $script:MaxLogRolling -Chain:$chained
+                Add-CCFLogText -Path $targetFile -Text $text -MaxMB $script:MaxLogSizeMB -MaxRolling $script:MaxLogRolling -Chain:$chained -ChainId $script:CCFChainId
             }
             catch {
                 # Never log a failure to log (it would recurse); warn on the console instead.
