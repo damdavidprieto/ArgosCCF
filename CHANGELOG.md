@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-26
+
+### Added
+- **Signed chains.** `New-CCFChainKey` creates a key protected with Windows DPAPI for the current account, and
+  `Initialize-CCFLogger -ChainKeyPath` signs every chained line with it (HMAC-SHA256, ` #mac=` instead of
+  ` #chain=`). Without the key, whoever can write the file cannot add, change or rewrite lines unnoticed.
+  `Test-CCFLogChain -ChainKeyPath` checks the signatures and reports `KeyedEntries`.
+- `Test-CCFLogChain -EventLogSource` reads the anchors of the file from the event log itself, and
+  `Test-CCFHealth -VerifyChain` checks every chained log of the session (identifier, key and anchors included).
+- `Initialize-CCFLogger -WriterInfo` adds who wrote each line: account, elevation and process ID.
+- `Test-CCFLogChain` returns `ClockWarnings`: lines dated earlier than the line before (`-ClockToleranceSeconds`).
+- `Export-CCFEvidence` packs logs, their rotated copies, their anchors and the result of checking them into a zip,
+  with the SHA-256 of every file, and returns the SHA-256 of the zip.
+- `Initialize-CCFLogger -NoConsole`, for scheduled tasks and services.
+
+### Changed
+- **Faster writes.** Short texts are checked against all the built-in rules in one search, and the rules run only
+  when one can match (the result is the same). Measured on Windows: an entry takes 3-4.5 ms instead of 5.5-6, and a
+  chained audit record 5-8.5 ms instead of 13. The lock of each log file stays open, and the last hash is read from the last
+  4 KB of the file first.
+- **Fewer false positives, measured on the evidence of a hardening tool** (163 files, 69,000 lines: 683 values
+  redacted without being secrets, now 2). Keys that describe a secret (`MinimumPasswordLength`, `PasswordLastSet`,
+  `credential.helper`) and unquoted values that cannot be one (true, false, null, `{`, and code such as `$x = $y`)
+  are kept; "signature" names a secret only at the end of a key (`x-amz-signature`, not
+  `AntivirusSignatureVersion`); Windows session numbers (`SessionId : 1`) are kept. `Test-CCFEntropyContent`
+  leaves alone command names, Store app packages and words joined to hexadecimal parts.
+- `-EncodedCommand` is also recognized in command lines inside JSON (`pwsh.exe\" -EncodedCommand ...`).
+
+### Fixed
+- An unchained line that claims earlier lines were archived no longer excuses deleted lines in
+  `Test-CCFLogChain -IncludeRotated`.
+- `Remove-CCFOldLog` keeps the copies of a signed log when the session does not have its key, instead of
+  recording their deletion without a signature.
+
 ## [2.0.0] - 2026-11-26
 
 ArgosCCF is now only secure logging and redaction.

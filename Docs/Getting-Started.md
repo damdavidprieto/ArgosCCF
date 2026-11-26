@@ -73,12 +73,19 @@ See [Security](Security.md) for the full list of rules and their limits.
 ## Tamper-evident logs
 
 ```powershell
-Initialize-CCFLogger -Chain Audit -ChainId 'deploy-01'
+$key = 'C:\ProgramData\MyApp\chain.key'
+if (-not (Test-Path $key)) { $null = New-CCFChainKey -Path $key }   # once, as the account that writes the log
+Initialize-CCFLogger -Chain Audit -ChainId 'deploy-01' -ChainKeyPath $key -WriterInfo
 Register-CCFChainAnchor -EventLogSource 'MyApp'      # every head also goes to the Application log
 Write-CCFAuditRecord -Action 'Deploy' -User $env:USERNAME -Resource 'web01' -Strict
+
 $auditLog = Join-Path (Get-CCFPath -Target Logs) 'CCF_Audit.log'
-Test-CCFLogChain -Path $auditLog -IncludeRotated -ChainId 'deploy-01' -ExpectedLastHash (Get-CCFChainAnchor -EventLogSource 'MyApp' -Category Audit)
+Test-CCFLogChain -Path $auditLog -IncludeRotated -ChainId 'deploy-01' -ChainKeyPath $key -EventLogSource 'MyApp'
+(Test-CCFHealth -VerifyChain).Status                 # the same for every chained log of the session
+Export-CCFEvidence -Path $auditLog -Destination .\audit.zip -EventLogSource 'MyApp' -ChainKeyPath $key
 ```
+
+For a scheduled task or a service, add `-NoConsole`: nobody reads that console, and writing to it costs time.
 
 ## Examples
 

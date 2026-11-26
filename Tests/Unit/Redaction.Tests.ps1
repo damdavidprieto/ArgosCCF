@@ -184,8 +184,47 @@ Describe 'Values that are not secrets' {
         @{ Case = 'a WMI class name'; Text = 'Get-CimInstance Win32_OperatingSystem' }
         @{ Case = 'an ordinary sentence'; Text = 'Backup passed 3 of 3 checks; tokenizer finished; design=final' }
         @{ Case = 'a timestamp'; Text = 'User bob signed in from 10.0.0.5 at 2026-11-15T10:00:00Z' }
+        # Found in the evidence of a hardening tool (2.1.0): settings, code and command lines.
+        @{ Case = 'git options with booleans and empty values'; Text = 'git -c log.showSignature=false -c credential.helper= -c core.askPass= status' }
+        @{ Case = 'PowerShell assignments'; Text = '$tokens = $errors = $null; $f.AccountsWithoutPassword = $noPwd -join ", "' }
+        @{ Case = 'a command as the value'; Text = '$signatures = Read-ChSignatureCache' }
+        @{ Case = 'an if as the value'; Text = '$f.AllAccountsHavePassword = if ($users) { 1 }' }
+        @{ Case = 'Defender status'; Text = 'AntivirusSignatureVersion        : 1.459.523.0' }
+        @{ Case = 'a password policy'; Text = 'MinimumPasswordLength : 7' }
+        @{ Case = 'a Windows session number'; Text = 'SessionId                  : 1' }
+        @{ Case = 'an empty JSON object'; Text = '"Secretos": {},' }
+        @{ Case = 'a long function name'; Text = 'function Get-ChAdminState2a3b4c5d6e7f([datetime]$Start)' }
+        @{ Case = 'a Store app package'; Text = '"bundleId":"MSTeams_8wekyb3d8bbwe!MSTeams"' }
+        @{ Case = 'words and a commit hash'; Text = 'code-stable-e4c7e7b1d6d060162f4aa7f8225271b67ce1df75.exe' }
     ) {
         Protect-CCFSensitiveData -InputData $Text | Should -BeExactly $Text
+    }
+
+    It 'still redacts <Text>' -TestCases @(
+        @{ Text = 'password = -Zanahoria9' }
+        @{ Text = 'api_key=$ecretValue9' }
+        @{ Text = 'password: $Zanahoria9' }
+        @{ Text = 'password=-foo' }
+        @{ Text = 'x-amz-signature=abcdef123456' }
+        @{ Text = 'SessionId=8f3k2j5h6g7f8d9s' }
+        @{ Text = '$password = ''Zanahoria9''' }
+        @{ Text = 'password=Read-Zanahoria9' }
+        @{ Text = 'password=(Zanahoria9' }
+        @{ Text = 'token xQ9zRtYpLm3NbVcXzK7-a1b2c3d4' }
+    ) {
+        Protect-CCFSensitiveData -InputData $Text | Should -Match 'REDACTED'
+    }
+
+    It 'keeps the metadata of a secret in data, not the secret' {
+        $r = Protect-CCFSensitiveData @{ MinimumPasswordLength = 7; Password = 'Zanahoria9'; SignatureVersion = '1.2'; RequestSignature = 'abc' }
+        $r.MinimumPasswordLength | Should -Be 7
+        $r.SignatureVersion | Should -Be '1.2'
+        $r.Password | Should -Be '[REDACTED]'
+        $r.RequestSignature | Should -Be '[REDACTED]'
+    }
+
+    It 'fingerprints -EncodedCommand in a command line inside JSON' {
+        Protect-CCFSensitiveData 'C:\x\pwsh.exe\" -NoProfile -EncodedCommand ZQBjAGgAbwAgAGgAbwBsAGEA\"' | Should -Match '-EncodedCommand \[ENCODED [0-9a-f]{8} 24 chars\]\\"$'
     }
 }
 

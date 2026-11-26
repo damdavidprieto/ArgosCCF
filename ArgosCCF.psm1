@@ -142,7 +142,7 @@ foreach ($coreFile in 'Redaction.ps1', 'Logging.ps1') { . (Join-Path $corePath $
 Initialize-CCFEnvironment
 
 # Write out queued log entries when the module is removed or imported again.
-$ExecutionContext.SessionState.Module.OnRemove = { Stop-CCFLogWriter -TimeoutSeconds 10 }
+$ExecutionContext.SessionState.Module.OnRemove = { Stop-CCFLogWriter -TimeoutSeconds 10; Close-CCFFileMutex }
 
 # Keep in sync with FunctionsToExport / AliasesToExport in ArgosCCF.psd1 (tests/QA checks it).
 Export-ModuleMember -Function @(
@@ -151,7 +151,7 @@ Export-ModuleMember -Function @(
     'Write-CCFLog', 'Write-CCFLogInfo', 'Write-CCFLogSuccess', 'Write-CCFLogWarn', 'Write-CCFLogError',
     'Write-CCFLogCritical', 'Write-CCFLogDebug', 'Write-CCFLogHeader',
     'Write-CCFSecurityRecord', 'Write-CCFAuditRecord', 'Write-CCFErrorRecord', 'Remove-CCFOldLog',
-    'Test-CCFLogChain', 'Get-CCFLogChainHead', 'Register-CCFChainAnchor', 'Get-CCFChainAnchor',
+    'Test-CCFLogChain', 'Get-CCFLogChainHead', 'Register-CCFChainAnchor', 'Get-CCFChainAnchor', 'New-CCFChainKey', 'Export-CCFEvidence',
     'Get-CCFLogWriter', 'Wait-CCFLogWriter', 'Stop-CCFLogWriter',
     'Protect-CCFSensitiveData', 'Test-CCFEntropyContent', 'Test-CCFHealth',
     'Register-CCFSecret', 'Unregister-CCFSecret', 'Register-CCFRedactionPattern', 'Unregister-CCFRedactionPattern',

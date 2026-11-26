@@ -416,7 +416,7 @@ Describe 'Write lock' {
     }
 
     It 'creates the lock so that every account can open it' -Skip:($IsLinux -or $IsMacOS) {
-        $mutex = InModuleScope ArgosCCF { Get-CCFFileMutex -Path (Join-Path $TestDrive 'acl.log') }
+        $mutex = InModuleScope ArgosCCF { New-CCFFileMutex -Path (Join-Path $TestDrive 'acl.log') }
         try {
             $acl = 'System.Threading.ThreadingAclExtensions' -as [type]
             $rules = if ($acl) { $acl::GetAccessControl($mutex) } else { $mutex.GetAccessControl() }

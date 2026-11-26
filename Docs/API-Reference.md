@@ -4,6 +4,7 @@ Generated from the comment-based help by `Docs/New-ApiReference.ps1`. In PowerSh
 
 | Command | Synopsis |
 |---|---|
+| [`Export-CCFEvidence`](#export-ccfevidence) | Packs logs, their rotated copies, their anchors and the result of checking them into one zip file. |
 | [`Get-CCFChainAnchor`](#get-ccfchainanchor) | Reads the chain anchors that Register-CCFChainAnchor -EventLogSource wrote to the Windows Application log. |
 | [`Get-CCFLogChainHead`](#get-ccflogchainhead) | The last chain hash of a log, to keep where the log's writer cannot change it. |
 | [`Get-CCFLogWriter`](#get-ccflogwriter) | Shows whether log files are written in the background and how many entries are waiting, written or failed. |
@@ -11,6 +12,7 @@ Generated from the comment-based help by `Docs/New-ApiReference.ps1`. In PowerSh
 | [`Get-CCFRedactionPattern`](#get-ccfredactionpattern) | Lists the redaction rules, in the order they are applied. |
 | [`Initialize-CCFEnvironment`](#initialize-ccfenvironment) | Finds the module folders and the per-user folder for logs and settings. |
 | [`Initialize-CCFLogger`](#initialize-ccflogger) | Sets the log file for the session and rotates it when it is too large. |
+| [`New-CCFChainKey`](#new-ccfchainkey) | Creates the key that signs chained logs, readable only by the account that creates it. |
 | [`Protect-CCFLogFile`](#protect-ccflogfile) | Writes a redacted copy of a log or transcript file. |
 | [`Protect-CCFSensitiveData`](#protect-ccfsensitivedata) | Returns a copy of the data with passwords, tokens, keys and other secrets replaced by [REDACTED]. |
 | [`Register-CCFChainAnchor`](#register-ccfchainanchor) | Runs a script block with every new chain head, to save it where the program that writes the log cannot change it. |
@@ -38,6 +40,40 @@ Generated from the comment-based help by `Docs/New-ApiReference.ps1`. In PowerSh
 | [`Write-CCFLogSuccess`](#write-ccflogsuccess) | Logs a message at SUCCESS level. |
 | [`Write-CCFLogWarn`](#write-ccflogwarn) | Logs a message at WARN level. |
 | [`Write-CCFSecurityRecord`](#write-ccfsecurityrecord) | Records a security event, such as an attack attempt or a blocked action, in CCF_Security.log. |
+
+## Export-CCFEvidence
+
+Packs logs, their rotated copies, their anchors and the result of checking them into one zip file.
+
+```powershell
+Export-CCFEvidence [-Path] <string[]> [-Destination] <string> [[-EventLogSource] <string>] [[-EventId] <int>] [[-ChainId] <string>] [[-ChainKeyPath] <string>] [-Force] [-WhatIf] [-Confirm] [<CommonParameters>]
+```
+
+For each log in -Path, copies the file and its rotated copies (with the file locked, so rotation cannot move
+them halfway), checks the copies with Test-CCFLogChain -IncludeRotated and writes into the zip: the copies,
+evidence.json (when, where and by whom it was made, the ArgosCCF version, the SHA-256 of every file and the
+result of each check) and, with -EventLogSource, anchors.json with the anchors that were checked. Returns
+Path, Sha256 (of the zip; keep it somewhere else to show the package was not changed later), Valid (every
+log checked out) and Logs. The logs are copied as they are: ArgosCCF already redacted them when it wrote
+them. Supports -WhatIf and -Confirm.
+
+| Parameter | Description |
+|---|---|
+| `-Path` | The log files, for example the path of CCF_Audit.log. Their rotated copies are included. |
+| `-Destination` | The zip file to create. |
+| `-EventLogSource` | Also check, and include, the anchors written by Register-CCFChainAnchor -EventLogSource. |
+| `-EventId` | The event ID of those anchors. Defaults to 1100. |
+| `-ChainId` | The identifier the logs must carry (see Test-CCFLogChain -ChainId). |
+| `-ChainKeyPath` | The key file the logs were signed with (New-CCFChainKey). |
+| `-Force` | Replace the zip file if it exists. |
+
+**Example 1**
+
+```powershell
+Export-CCFEvidence -Path $auditLog -Destination .\audit-evidence.zip -EventLogSource 'MyApp'
+```
+
+Packs the audit log, its anchors and the result of checking them.
 
 ## Get-CCFChainAnchor
 
@@ -215,7 +251,7 @@ Moves the logs and user settings of this session to D:\AppData\Backup.
 Sets the log file for the session and rotates it when it is too large.
 
 ```powershell
-Initialize-CCFLogger [[-FileName] <string>] [[-Path] <string>] [[-MaxMB] <int>] [[-MaxRolling] <int>] [[-Chain] <string[]>] [[-ChainId] <string>] [-JsonOutput] [-Background] [-Strict] [<CommonParameters>]
+Initialize-CCFLogger [[-FileName] <string>] [[-Path] <string>] [[-MaxMB] <int>] [[-MaxRolling] <int>] [[-Chain] <string[]>] [[-ChainId] <string>] [[-ChainKeyPath] <string>] [-JsonOutput] [-Background] [-WriterInfo] [-NoConsole] [-Strict] [<CommonParameters>]
 ```
 
 Until this runs, Write-CCFLog writes System messages to the console only. Afterwards
@@ -238,6 +274,9 @@ CCF_<Category>.log file in the same folder.
 | `-Background` | Write log files from a background worker, so Write-CCFLog returns without waiting for the disk. Entries keep their order and are written in batches with the same lock and rotation. The queue holds 10,000 entries; when it is full, Write-CCFLog waits, so no entry is dropped. ERROR and CRITICAL entries, Security and Audit records and entries logged with -NoBuffer wait until they are in the file. The queue is written out when PowerShell exits normally, when the module is removed, by Stop-CCFLogWriter and when Initialize-CCFLogger runs again without -Background; entries still queued when the process is killed are lost. See Get-CCFLogWriter and Wait-CCFLogWriter. |
 | `-Chain` | Categories whose log files are tamper-evident, for example 'Audit' and 'Security': every line ends with a hash of itself and of the line before, so Test-CCFLogChain finds a line that was changed, inserted or deleted. Use the category name, or 'System' for the session file. These entries are always written directly, also with -Background. |
 | `-ChainId` | Identifier of who writes the chain (letters, digits, '.', '-' and '_'), added to every chained line inside what is hashed. With it, Test-CCFLogChain -ChainId tells lines of another program or another copy apart. |
+| `-ChainKeyPath` | Sign the chained categories with the key in this file (New-CCFChainKey), so only who can read the key can write valid lines. Windows only. |
+| `-WriterInfo` | Add to every line who wrote it: the account, whether the process was elevated and its process ID, as " #by=<account>;<elevated\|standard>;pid=<id>" (a "Writer" property in JSON). In chained logs it is part of what is hashed, so it cannot be changed afterwards. |
+| `-NoConsole` | Do not write the entries to the console (providers still receive them). For scheduled tasks and services, where nobody reads the console and writing to a redirected one is slow. |
 | `-Strict` | Entries of the chained categories, and Security and Audit records, that cannot be written throw an error instead of a warning, so a script can stop before doing something it could not record. |
 
 **Example 1**
@@ -278,6 +317,45 @@ Initialize-CCFLogger -FileName 'Import.log' -Background
 ```
 
 Logs to Import.log from a background worker, for scripts that log many entries.
+
+**Example 6**
+
+```powershell
+Initialize-CCFLogger -Chain Audit -ChainKeyPath 'C:\ProgramData\MyApp\chain.key' -WriterInfo -NoConsole
+```
+
+A scheduled task: signed audit log, with who wrote each line, and nothing on the console.
+
+## New-CCFChainKey
+
+Creates the key that signs chained logs, readable only by the account that creates it.
+
+```powershell
+New-CCFChainKey [-Path] <string> [-Force] [-WhatIf] [-Confirm] [<CommonParameters>]
+```
+
+Writes 32 random bytes, protected with Windows DPAPI for the current account, to -Path, and returns the file.
+Pass the file to Initialize-CCFLogger -ChainKeyPath: every chained line then carries an HMAC with the key
+(" #mac=" instead of " #chain="), so whoever can write the log but cannot read the key cannot add, change or
+rewrite lines without Test-CCFLogChain noticing. Create it with the account that writes the log, for example
+the administrator account or SYSTEM of a scheduled task: other accounts, including administrators, cannot
+read it without that account's credentials. A process running as that account can use the key, so keep
+anchors (Register-CCFChainAnchor) too. Keep the file: without it, logs signed with it cannot be checked.
+Windows only. Supports -WhatIf and -Confirm.
+
+| Parameter | Description |
+|---|---|
+| `-Path` | The key file to create, outside the Logs folder. |
+| `-Force` | Replace an existing key file. Logs signed with the old key can no longer be checked. |
+
+**Example 1**
+
+```powershell
+New-CCFChainKey -Path 'C:\ProgramData\MyApp\chain.key'
+Initialize-CCFLogger -Chain Audit -ChainKeyPath 'C:\ProgramData\MyApp\chain.key'
+```
+
+Signs the audit log with a key only this account can read.
 
 ## Protect-CCFLogFile
 
@@ -571,6 +649,7 @@ than -DaysToKeep days, optionally compresses them into CCF_Archive_<date>.zip in
 folder, deletes them and returns their names. Supports -WhatIf and -Confirm.
 A chained log (Initialize-CCFLogger -Chain) keeps its current file, and loses only its oldest rotated copies,
 oldest first: the deletion is recorded in the current file, so Test-CCFLogChain still checks what is left.
+Copies of a signed log are deleted only when the session has its key (Initialize-CCFLogger -ChainKeyPath).
 
 | Parameter | Description |
 |---|---|
@@ -665,7 +744,9 @@ case letters in a row (random strings rarely have one; words and identifiers suc
 Win32_OperatingSystem do), and for strings of 32 or more characters that mix two of
 those kinds with at least one digit in five characters.
 GUIDs, Windows SIDs and hexadecimal strings (hashes, certificate thumbprints) are never
-flagged: they are common in logs and are not secrets.
+flagged: they are common in logs and are not secrets. Neither are command names
+(Verb-Noun), Store app package names (Name_8wekyb3d8bbwe) and words joined by '-' or '_'
+to hexadecimal parts (code-stable-<commit hash>).
 Protect-CCFSensitiveData uses it for values that are not labeled as secrets. It is a
 heuristic: it can miss secrets and flag harmless identifiers.
 
@@ -694,14 +775,20 @@ Returns $false: GUIDs are not treated as secrets.
 Checks that the Logs folder is writable, and that the chain anchor and the background writer have not failed.
 
 ```powershell
-Test-CCFHealth [<CommonParameters>]
+Test-CCFHealth [-VerifyChain] [<CommonParameters>]
 ```
 
 Returns an object with Timestamp, Status ("OK" or "DEGRADED") and Checks: one for the
 Logs folder, one for the chain anchor when one is registered (no failures) and, with background writing,
-one for the writer (running, with no failed writes).
+one for the writer (running, with no failed writes). With -VerifyChain, one per chained category
+(Chain:<Category>) with the result of Test-CCFLogChain -IncludeRotated, using the identifier, the key and the
+event log anchors given to Initialize-CCFLogger and Register-CCFChainAnchor.
 Status is DEGRADED when any check fails. Use it at the start of a script, or in a
 monitoring job, to fail early when the environment is not usable.
+
+| Parameter | Description |
+|---|---|
+| `-VerifyChain` | Also check the chained logs (Initialize-CCFLogger -Chain). It reads the whole logs, so it takes longer. |
 
 **Example 1**
 
@@ -719,17 +806,28 @@ Test-CCFHealth | Select-Object -ExpandProperty Checks | Where-Object { -not $_.P
 
 Lists the checks that failed.
 
+**Example 3**
+
+```powershell
+(Test-CCFHealth -VerifyChain).Checks | Where-Object Target -like 'Chain:*'
+```
+
+Checks that no line of the chained logs was changed or deleted, also against the anchors in the event log.
+
 ## Test-CCFLogChain
 
 Checks that nobody has changed, inserted or deleted lines of a log written with Initialize-CCFLogger -Chain.
 
 ```powershell
-Test-CCFLogChain [-Path] <string> [[-ExpectedLastHash] <Object[]>] [[-ChainId] <string>] [-IncludeRotated] [<CommonParameters>]
+Test-CCFLogChain [-Path] <string> [[-ExpectedLastHash] <Object[]>] [[-ChainId] <string>] [[-EventLogSource] <string>] [[-EventId] <int>] [[-ChainKeyPath] <string>] [[-ClockToleranceSeconds] <int>] [-IncludeRotated] [<CommonParameters>]
 ```
 
 Recomputes the hash of every chained line from the one before. Returns Path, Entries (chained lines),
 Valid, BrokenAt (the first line number that does not match, or $null), Reason, LastHash and ChainId (the
-identifier of the last line), ArchivedUntil, MissingHashes and ExternalHashes. Lines written
+identifier of the last line), ArchivedUntil, MissingHashes, ExternalHashes, KeyedEntries (lines signed with a
+chain key) and ClockWarnings (lines whose time is earlier than the line before by more than
+-ClockToleranceSeconds: the clock was set back, which can hide when something happened; they do not make the
+log invalid, since clocks are also corrected legitimately). Lines written
 before the chain was enabled are skipped; an unchained line after a chained one breaks the chain.
 With -IncludeRotated the rotated copies (.N down to .1) are checked first and the chain must run across
 them from the start; otherwise the first chained line of the file is taken as given, because the line
@@ -746,6 +844,10 @@ copy kept elsewhere (-ExpectedLastHash).
 | `-IncludeRotated` | Also check the rotated copies and the link between them. |
 | `-ExpectedLastHash` | Last hashes saved earlier (Get-CCFLogChainHead), one or several: strings, or objects with Hash and Time (when the hash was saved). A hash saved before the last line of a copy that rotation deleted is not required any more. With plain strings, every hash must still be in the log. If the chain no longer contains any of them, lines were deleted or the log was rewritten. With hashes saved over time, a forged later copy cannot hide that an earlier one is gone. |
 | `-ChainId` | The identifier this log must carry (Initialize-CCFLogger -ChainId). From the first line that has one, every line must have this one: a line written by another program, or by another copy of the same program, breaks the chain. Keep the identifier where the log's writer cannot change it, and pass only the saved hashes that belong to it: an identifier read from the log itself proves nothing. |
+| `-EventLogSource` | Also check the anchors that Register-CCFChainAnchor -EventLogSource wrote for this file (Get-CCFChainAnchor, filtered by the file name and by -ChainId when given). Windows only. |
+| `-EventId` | The event ID of those anchors. Defaults to 1100. |
+| `-ChainKeyPath` | The key file the log was signed with (New-CCFChainKey). Without it, the key given to Initialize-CCFLogger in this session is used. A log with signed lines cannot be checked without the key. With the key, the last line must be signed and no unsigned line may follow a signed one, so the log cannot be rewritten without it. |
+| `-ClockToleranceSeconds` | How far back the time of a line may be from the line before without a clock warning. Defaults to 5: lines from several processes can reach the file a little out of order. |
 
 **Example 1**
 
@@ -754,6 +856,14 @@ Test-CCFLogChain -Path (Join-Path (Get-CCFPath -Target Logs) 'CCF_Audit.log') -I
 ```
 
 Checks the whole audit history.
+
+**Example 2**
+
+```powershell
+Test-CCFLogChain -Path $auditLog -IncludeRotated -EventLogSource 'MyApp' -ChainKeyPath 'C:\ProgramData\MyApp\chain.key'
+```
+
+Checks the signed audit log and that none of the heads kept in the event log is missing.
 
 ## Unregister-CCFRedactionPattern
 

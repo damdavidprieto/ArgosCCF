@@ -92,7 +92,7 @@ More in [`Examples/`](Examples/). Each example runs as part of the tests.
 |---|---|
 | Redaction | `Protect-CCFSensitiveData`, `Protect-CCFLogFile`, `Register-CCFSecret`, `Unregister-CCFSecret`, `Register-CCFRedactionPattern`, `Unregister-CCFRedactionPattern`, `Get-CCFRedactionPattern`, `Test-CCFEntropyContent` |
 | Logging | `Initialize-CCFLogger`, `Write-CCFLog`, `Write-CCFLogInfo`, `Write-CCFLogSuccess`, `Write-CCFLogWarn`, `Write-CCFLogError`, `Write-CCFLogCritical`, `Write-CCFLogDebug`, `Write-CCFLogHeader`, `Set-CCFLogLevel`, `Register-CCFLogProvider`, `Register-CCFSIEMProvider`, `Remove-CCFOldLog`, `Get-CCFLogWriter`, `Wait-CCFLogWriter`, `Stop-CCFLogWriter` |
-| Security and audit records | `Write-CCFSecurityRecord`, `Write-CCFAuditRecord`, `Write-CCFErrorRecord`, `Test-CCFLogChain`, `Get-CCFLogChainHead`, `Register-CCFChainAnchor`, `Get-CCFChainAnchor` |
+| Security and audit records | `Write-CCFSecurityRecord`, `Write-CCFAuditRecord`, `Write-CCFErrorRecord`, `Test-CCFLogChain`, `Get-CCFLogChainHead`, `Register-CCFChainAnchor`, `Get-CCFChainAnchor`, `New-CCFChainKey`, `Export-CCFEvidence` |
 | Environment | `Get-CCFPath`, `Initialize-CCFEnvironment`, `Test-CCFHealth` |
 
 See the [API reference](Docs/API-Reference.md) for every command.

@@ -22,8 +22,8 @@ provider, the SIEM provider or a file. Text is checked in this order
 | 7b. XML and command lines | Elements such as `<password>`; `-Password x`, `--token x`, `/pass:x` in any program; the password options of `net`, `rasdial`, `schtasks` and other Windows tools, PsTools, `sqlcmd`, `mysql`, `curl -u`, container logins, `sshpass`, 7-Zip, RAR, `zip`, `openssl`, `certutil` and `netsh`; literals of `ConvertTo-SecureString` | `net user bob [REDACTED] /add` |
 | 7c. Encoded commands | PowerShell `-EncodedCommand`: 32 bits of its SHA-256 and its length. The same command gives the same fingerprint; someone who already suspects the exact content could check the guess | `-EncodedCommand [ENCODED 1a2b3c4d 120 chars]` |
 | 8. Your patterns | Regular expressions added with `Register-CCFRedactionPattern` | `[REDACTED]` |
-| 9. Key/value pairs | `key=value`, `key: value`, `"key": "value"` and quoted values with spaces, when the key names a secret: password, passwd, passphrase, contrasena (with or without the tilde), secret, token, api key, access key, private key, account key, shared key, credential, cookie, session id, signature, connection string (also inside longer keys such as `db_password` or `ClientSecret`), and the exact keys pwd, pass, pw, pin, sig, sas, pat, clave | `{"password":"[REDACTED]"}` |
-| 10. Random-looking words | 20 or more characters mixing upper case, lower case and digits (see `Test-CCFEntropyContent`). GUIDs, SIDs, hashes, paths, URLs and host names are left alone | `key [REDACTED-ENTROPY]` |
+| 9. Key/value pairs | `key=value`, `key: value`, `"key": "value"` and quoted values with spaces, when the key names a secret: password, passwd, passphrase, contrasena (with or without the tilde), secret, token, api key, access key, private key, account key, shared key, credential, cookie, session id, signature, connection string (also inside longer keys such as `db_password` or `ClientSecret`), keys that end in signature, and the exact keys pwd, pass, pw, pin, sig, sas, pat, clave. Keys that describe a secret (`MinimumPasswordLength`, `PasswordLastSet`, `credential.helper`) and unquoted values that cannot be one (true, false, null, `{`, and code such as `$x = $y` or `$x = Read-Host`) are kept | `{"password":"[REDACTED]"}` |
+| 10. Random-looking words | 20 or more characters mixing upper case, lower case and digits (see `Test-CCFEntropyContent`). GUIDs, SIDs, hashes, paths, URLs, host names, command names, Store app packages and words joined to hexadecimal parts are left alone | `key [REDACTED-ENTROPY]` |
 
 Hashtables, objects and arrays are copied and checked recursively: values whose key names a secret
 become `[REDACTED]` (true/false values are kept), `SecureString` values become `[REDACTED]`, and
@@ -82,9 +82,21 @@ detected. Do not log secrets on purpose, and register the ones your script handl
   `Test-CCFLogChain` checks the chain, also across rotated copies: when rotation deletes the oldest copy, the next
   file records where it ended (also when `Remove-CCFOldLog` deletes it), so retention is not mistaken for
   tampering. `-Strict` makes an entry that cannot be written throw an error.
-  The chain alone proves little: whoever can write the file can rewrite it and compute new hashes. Keep the heads
-  where the writer cannot change them (`Register-CCFChainAnchor -EventLogSource`) and check them
-  (`Test-CCFLogChain -ExpectedLastHash`, which reports `ExternalHashes`).
+  The chain alone proves little: whoever can write the file can rewrite it and compute new hashes. Two things
+  close that gap:
+  - **A key** (`New-CCFChainKey`, then `Initialize-CCFLogger -ChainKeyPath`): every line carries an HMAC with a key
+    that Windows DPAPI protects for the account that writes the log, so another account that can write the file
+    still cannot write valid lines. A process running as that same account can use the key.
+  - **Anchors** kept where the writer cannot change them (`Register-CCFChainAnchor -EventLogSource`), which show
+    lines deleted from the end.
+
+  `Test-CCFLogChain -EventLogSource ... -ChainKeyPath ...` checks both in one step (it reports `ExternalHashes` and
+  `KeyedEntries`), `Test-CCFHealth -VerifyChain` does it for the logs of the session, and `Export-CCFEvidence` packs
+  the logs, their anchors and the result into a zip whose SHA-256 you can keep elsewhere. `Test-CCFLogChain` also
+  reports `ClockWarnings`, lines dated earlier than the one before, which is how a clock set back to hide when
+  something happened shows up.
+- **Who wrote each line.** `Initialize-CCFLogger -WriterInfo` adds the account, whether it was elevated and the
+  process ID to every line; in a chained log they are part of what is hashed.
 - **One entry, one line.** Line breaks in messages are written as the text `\n`, and other control
   characters are removed, so a message cannot add fake entries to a log file.
 - **No terminal escape sequences.** ANSI escape sequences are removed, so a message cannot recolor
