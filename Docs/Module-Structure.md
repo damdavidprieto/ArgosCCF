@@ -12,12 +12,7 @@ ArgosCCF/
 ├── ArgosCCF.psm1        # Root module: environment initialisation, dot-sources Core/*
 ├── Core/                # Function files, loaded into the module's own scope
 │   ├── Redaction.ps1        # Secret redaction rules, registered secrets, Protect-CCFLogFile
-│   ├── Logging.ps1          # Structured logging, background writer, security/audit records, retention
-│   ├── Configuration.ps1    # Layered config (Factory / Preset / User), deep merge, cache (deprecated)
-│   ├── Execution.ps1        # Runspace-pool parallel execution (deprecated)
-│   └── Plugins.ps1          # Plugin discovery, signature check, sandboxing (deprecated)
-├── Configs/             # Factory defaults (shipped); user settings live in the data folder
-├── Plugins/             # Plugin scripts; Plugins/Examples is shipped
+│   └── Logging.ps1          # Structured logging, background writer, chains and anchors, security/audit records, retention
 ├── Tests/               # Pester: QA/, Unit/, Integration/
 ├── Docs/                # This documentation
 ├── Examples/            # Runnable examples, run by the tests
@@ -69,9 +64,8 @@ Fields that matter:
 }
 ```
 
-ArgosCCF exports 31 functions and 17 aliases this way. The aliases keep older names
-working (`Log-Info` → `Write-CCFLogInfo`, `Init-CCFLogger` → `Initialize-CCFLogger`)
-while the functions themselves use approved verbs.
+ArgosCCF exports 34 functions this way, all with approved verbs. Up to 1.7 it also kept older names as aliases
+(`Log-Info` → `Write-CCFLogInfo`); 2.0.0 removed them.
 
 Validate the manifest after every change:
 
@@ -84,11 +78,11 @@ Test-ModuleManifest -Path .\MyModule.psd1
 Keep it small: initialise state, dot-source the Core files and export the public functions.
 
 ```powershell
-foreach ($coreFile in 'Logging.ps1', 'Configuration.ps1', 'Plugins.ps1', 'Execution.ps1') {
+foreach ($coreFile in 'Redaction.ps1', 'Logging.ps1') {
     . (Join-Path $PSScriptRoot "Core/$coreFile")
 }
 
-Export-ModuleMember -Function @('Write-CCFLog', 'Get-CCFConfig', ...) -Alias @('Log-Info', ...)
+Export-ModuleMember -Function @('Write-CCFLog', 'Protect-CCFSensitiveData', ...)
 ```
 
 Dot-sourcing keeps every Core function in the module's own scope: they can call each other,
@@ -168,8 +162,8 @@ Tests use [Pester 5](https://pester.dev/) and are split by scope:
 | Folder | What it covers |
 |---|---|
 | `Tests/QA` | Module quality, as in the Sampler template: complete help for every exported command, no PSScriptAnalyzer findings with `PSScriptAnalyzerSettings.psd1`, changelog format, manifest metadata and exports |
-| `Tests/Unit` | Each Core area (configuration, execution, logging, plugins), security checks (log names, log forging, configuration names, path overrides) and the examples |
-| `Tests/Integration` | End to end: what reaches the log files (redaction, JSON, security and audit records, retention) and plugin execution (manifests, hooks, location and signature policies) |
+| `Tests/Unit` | Each Core area (redaction, logging, chains and anchors, background writer), security checks (log names, log forging) and the examples |
+| `Tests/Integration` | End to end: what reaches the log files (redaction, JSON, security and audit records, retention) |
 
 A minimal test file:
 
@@ -194,7 +188,7 @@ Invoke-Pester -Path .\Tests -Output Detailed
 ## 7. Continuous integration and publishing
 
 - `build.ps1` runs PSScriptAnalyzer with `PSScriptAnalyzerSettings.psd1` and Pester, then copies only the runtime files
-  (manifest, root module, `Core`, `Configs/Factory`, `Plugins/Examples`, `LICENSE`, `README.md`)
+  (manifest, root module, `Core`, `LICENSE`, `README.md`)
   into `output/ArgosCCF`. That folder is what gets published, never the repository root.
 - `.github/workflows/ci.yml` runs `build.ps1` on Windows, Linux and macOS (PowerShell 7), and
   on Windows PowerShell 5.1 runs the Pester suite, installs the built package with

@@ -4,18 +4,13 @@ Generated from the comment-based help by `Docs/New-ApiReference.ps1`. In PowerSh
 
 | Command | Synopsis |
 |---|---|
-| [`Confirm-CCFPluginSignature`](#confirm-ccfpluginsignature) | Checks whether a plugin file has a valid Authenticode signature. |
-| [`Get-CCFConfig`](#get-ccfconfig) | Loads a configuration by name, merging the factory, preset and user layers. |
+| [`Get-CCFChainAnchor`](#get-ccfchainanchor) | Reads the chain anchors that Register-CCFChainAnchor -EventLogSource wrote to the Windows Application log. |
 | [`Get-CCFLogChainHead`](#get-ccflogchainhead) | The last chain hash of a log, to keep where the log's writer cannot change it. |
 | [`Get-CCFLogWriter`](#get-ccflogwriter) | Shows whether log files are written in the background and how many entries are waiting, written or failed. |
 | [`Get-CCFPath`](#get-ccfpath) | Returns the full path of one of the ArgosCCF folders. |
-| [`Get-CCFPlugin`](#get-ccfplugin) | Lists the plugins in the Plugins folder (or another folder) with their metadata. |
 | [`Get-CCFRedactionPattern`](#get-ccfredactionpattern) | Lists the redaction rules, in the order they are applied. |
 | [`Initialize-CCFEnvironment`](#initialize-ccfenvironment) | Finds the module folders and the per-user folder for logs and settings. |
 | [`Initialize-CCFLogger`](#initialize-ccflogger) | Sets the log file for the session and rotates it when it is too large. |
-| [`Invoke-CCFParallel`](#invoke-ccfparallel) | Runs a script block for each input object in parallel and returns one result per object. |
-| [`Invoke-CCFPlugin`](#invoke-ccfplugin) | Runs a plugin from the Plugins folder, with its lifecycle hooks and optional sandboxing. |
-| [`Merge-CCFConfig`](#merge-ccfconfig) | Merges one configuration object into another, recursively. |
 | [`Protect-CCFLogFile`](#protect-ccflogfile) | Writes a redacted copy of a log or transcript file. |
 | [`Protect-CCFSensitiveData`](#protect-ccfsensitivedata) | Returns a copy of the data with passwords, tokens, keys and other secrets replaced by [REDACTED]. |
 | [`Register-CCFChainAnchor`](#register-ccfchainanchor) | Runs a script block with every new chain head, to save it where the program that writes the log cannot change it. |
@@ -23,15 +18,11 @@ Generated from the comment-based help by `Docs/New-ApiReference.ps1`. In PowerSh
 | [`Register-CCFRedactionPattern`](#register-ccfredactionpattern) | Adds a regular expression whose matches are redacted, for secret formats specific to your environment. |
 | [`Register-CCFSecret`](#register-ccfsecret) | Registers values that must never appear in a log, wherever they show up. |
 | [`Register-CCFSIEMProvider`](#register-ccfsiemprovider) | Forwards every log entry to a script block, for example to send it to a SIEM. |
-| [`Remove-CCFConfigCache`](#remove-ccfconfigcache) | Clears the in-memory configuration cache. |
 | [`Remove-CCFOldLog`](#remove-ccfoldlog) | Deletes log files older than -DaysToKeep from the Logs folder, optionally zipping them first. |
 | [`Set-CCFLogLevel`](#set-ccfloglevel) | Sets the minimum level of the messages that are logged. |
-| [`Set-CCFUserConfig`](#set-ccfuserconfig) | Saves user settings for a configuration and clears its cached copies. |
 | [`Stop-CCFLogWriter`](#stop-ccflogwriter) | Writes the queued log entries and stops the background writer; later entries are written directly. |
-| [`Submit-CCFHeartbeat`](#submit-ccfheartbeat) | Records that the registered log provider is alive. |
-| [`Test-CCFConfigSchema`](#test-ccfconfigschema) | Validates a configuration object against a simple schema and fills in defaults. |
 | [`Test-CCFEntropyContent`](#test-ccfentropycontent) | Tests whether a string looks like a random secret, such as an API key or a token. |
-| [`Test-CCFHealth`](#test-ccfhealth) | Checks that the ArgosCCF components are loaded and that the Logs folder is writable. |
+| [`Test-CCFHealth`](#test-ccfhealth) | Checks that the Logs folder is writable, and that the chain anchor and the background writer have not failed. |
 | [`Test-CCFLogChain`](#test-ccflogchain) | Checks that nobody has changed, inserted or deleted lines of a log written with Initialize-CCFLogger -Chain. |
 | [`Unregister-CCFRedactionPattern`](#unregister-ccfredactionpattern) | Removes a pattern added with Register-CCFRedactionPattern. |
 | [`Unregister-CCFSecret`](#unregister-ccfsecret) | Removes values registered with Register-CCFSecret. |
@@ -48,101 +39,36 @@ Generated from the comment-based help by `Docs/New-ApiReference.ps1`. In PowerSh
 | [`Write-CCFLogWarn`](#write-ccflogwarn) | Logs a message at WARN level. |
 | [`Write-CCFSecurityRecord`](#write-ccfsecurityrecord) | Records a security event, such as an attack attempt or a blocked action, in CCF_Security.log. |
 
-## Aliases
+## Get-CCFChainAnchor
 
-Names from earlier versions, kept so existing scripts keep working.
-
-| Alias | Command |
-|---|---|
-| `Catch-CCFError` | `Write-CCFErrorRecord` |
-| `Clear-CCFConfigCache` | `Remove-CCFConfigCache` |
-| `Get-CCFPlugins` | `Get-CCFPlugin` |
-| `Init-CCFLogger` | `Initialize-CCFLogger` |
-| `Log-Attack` | `Write-CCFSecurityRecord` |
-| `Log-Audit` | `Write-CCFAuditRecord` |
-| `Log-Critical` | `Write-CCFLogCritical` |
-| `Log-Debug` | `Write-CCFLogDebug` |
-| `Log-Error` | `Write-CCFLogError` |
-| `Log-Header` | `Write-CCFLogHeader` |
-| `Log-Info` | `Write-CCFLogInfo` |
-| `Log-Success` | `Write-CCFLogSuccess` |
-| `Log-Warn` | `Write-CCFLogWarn` |
-| `Redact-CCFSensitiveData` | `Protect-CCFSensitiveData` |
-| `Remove-OldCCFLogs` | `Remove-CCFOldLog` |
-| `Test-CCFHighEntropy` | `Test-CCFEntropyContent` |
-| `Test-CCFPluginSignature` | `Confirm-CCFPluginSignature` |
-
-## Confirm-CCFPluginSignature
-
-Checks whether a plugin file has a valid Authenticode signature.
+Reads the chain anchors that Register-CCFChainAnchor -EventLogSource wrote to the Windows Application log.
 
 ```powershell
-Confirm-CCFPluginSignature [-Path] <string> [<CommonParameters>]
+Get-CCFChainAnchor [-EventLogSource] <string> [[-EventId] <int>] [[-Category] <string>] [[-ChainId] <string>] [[-File] <string>] [[-MaxEvents] <int>] [<CommonParameters>]
 ```
 
-Deprecated: plugins will be removed from ArgosCCF in 2.0.0, which keeps only logging and
-redaction. It keeps working in 1.x. Plugins run only from the Plugins folder of the
-installed module, so copy them again after updating it.
-Returns a hashtable with Valid ($true only for a valid, trusted signature), Status and,
-when valid, Signer. Self-signed certificates that are not trusted on the machine, and
-any platform without Authenticode (Linux, macOS), return Valid = $false: the check
-fails closed. Invoke-CCFPlugin runs this check on the exact bytes it is about to run
-when RequireSignedPlugins is enabled. The alias Test-CCFPluginSignature is kept for
-older scripts.
+Returns one object per anchor, oldest first, with File, Category, Hash, ChainId and Time (UTC). Pass them to
+Test-CCFLogChain -ExpectedLastHash: with their time, anchors of copies that rotation or Remove-CCFOldLog deleted
+are not required. Filter by -Category, -ChainId and -File so the anchors of one log are checked against it.
+Events with the same source and ID that are not anchors are ignored.
 
 | Parameter | Description |
 |---|---|
-| `-Path` | Path to the plugin file. |
+| `-EventLogSource` | The source name passed to Register-CCFChainAnchor. |
+| `-EventId` | The event ID passed to Register-CCFChainAnchor. Defaults to 1100. |
+| `-Category` | Only anchors of this log category, for example Audit. |
+| `-ChainId` | Only anchors with this chain identifier (Initialize-CCFLogger -ChainId). |
+| `-File` | Only anchors of this log file name, for example CCF_Audit.log. |
+| `-MaxEvents` | The most recent events to read. Defaults to 5000. |
 
 **Example 1**
 
 ```powershell
-(Confirm-CCFPluginSignature -Path .\Plugins\Backup\Backup.ps1).Valid
+$anchors = Get-CCFChainAnchor -EventLogSource 'MyApp' -Category Audit
+Test-CCFLogChain -Path $auditLog -IncludeRotated -ExpectedLastHash $anchors
 ```
 
-Returns $true when the plugin is signed with a trusted certificate.
-
-## Get-CCFConfig
-
-Loads a configuration by name, merging the factory, preset and user layers.
-
-```powershell
-Get-CCFConfig [-ConfigName] <string> [[-ActivePresets] <string[]>] [-ForceRefresh] [<CommonParameters>]
-```
-
-Deprecated: configuration will be removed from ArgosCCF in 2.0.0, which keeps only
-logging and redaction. It keeps working in 1.x.
-Reads Configs/Factory/<ConfigName>.json in the module folder, merges the section named
-<ConfigName> of each preset in Configs/Presets/<preset>.json (in the module folder, then
-in the data folder), then merges the user settings: Configs/User/<ConfigName>.json in
-the module folder (where versions before 1.4.0 saved them) and then the file saved by
-Set-CCFUserConfig in the data folder (Get-CCFPath -Target UserConfigs), and returns the
-result. The result is cached per name and preset list; use -ForceRefresh
-or Remove-CCFConfigCache after changing the files. Names must be plain file names:
-anything that looks like a path is refused and logged as a security block.
-The returned object is the cached one, so changes to it are visible to later calls.
-
-| Parameter | Description |
-|---|---|
-| `-ConfigName` | Name of the configuration, without .json. Letters, digits, '.', '-' and '_'. |
-| `-ActivePresets` | Presets to apply, in order, between the factory and the user layers. |
-| `-ForceRefresh` | Read the files again instead of returning the cached result. |
-
-**Example 1**
-
-```powershell
-(Get-CCFConfig -ConfigName 'ccf_core').Logging
-```
-
-Returns the logging section of the core configuration.
-
-**Example 2**
-
-```powershell
-Get-CCFConfig -ConfigName 'demo_app' -ActivePresets 'Production' -ForceRefresh
-```
-
-Reloads demo_app with the Production preset applied.
+Checks the audit log and that no anchored line is missing.
 
 ## Get-CCFLogChainHead
 
@@ -209,19 +135,13 @@ Returns the full path of one of the ArgosCCF folders.
 Get-CCFPath [-Target] <string> [<CommonParameters>]
 ```
 
-Returns the folder used for Root (the module), Core, Configs (the configuration files
-that ship with the module), Plugins, Tests, Data (the per-user folder for logs and
-settings, see Initialize-CCFEnvironment), UserConfigs (user settings saved with
-Set-CCFUserConfig) or Logs. Results are cached for the session.
-The Logs folder is, in order: the folder given to Initialize-CCFLogger -Path; the
-Logging.DefaultPath value of the ccf_core configuration, used only when, after
-resolving "..", it is inside the data folder (a relative value is taken from the data
-folder), so a configuration file cannot send logs to an arbitrary folder; otherwise
-Logs inside the data folder.
+Returns the folder used for Root (the module), Core, Data (the per-user folder for logs, see
+Initialize-CCFEnvironment) or Logs: the folder given to Initialize-CCFLogger -Path, or Logs inside the
+data folder. Results are cached for the session.
 
 | Parameter | Description |
 |---|---|
-| `-Target` | The folder to return: Root, Core, Configs, Logs, Tests, Plugins, Data or UserConfigs. |
+| `-Target` | The folder to return: Root, Core, Logs or Data. |
 
 **Example 1**
 
@@ -238,44 +158,6 @@ Get-ChildItem (Get-CCFPath -Target Logs) -Filter *.log
 ```
 
 Lists the log files.
-
-## Get-CCFPlugin
-
-Lists the plugins in the Plugins folder (or another folder) with their metadata.
-
-```powershell
-Get-CCFPlugin [[-Path] <string>] [<CommonParameters>]
-```
-
-Deprecated: plugins will be removed from ArgosCCF in 2.0.0, which keeps only logging and
-redaction. It keeps working in 1.x. Plugins run only from the Plugins folder of the
-installed module, so copy them again after updating it.
-Finds every .ps1 file in the folder and its subfolders and returns one object per
-plugin with Name, Description, Version, Author, Path, Signed and Manifest.
-Metadata comes from a ccf_plugin.json file in the plugin's folder (Name, Version,
-Author, Description) or, failing that, from comment keywords in the script
-(.NAME, .DESCRIPTION, .VERSION, .AUTHOR, or CCF_PLUGIN_NAME: and similar).
-Listing a plugin does not run it. The alias Get-CCFPlugins is kept for older scripts.
-
-| Parameter | Description |
-|---|---|
-| `-Path` | Folder to search. Defaults to the module's Plugins folder. |
-
-**Example 1**
-
-```powershell
-Get-CCFPlugin | Format-Table Name, Version, Signed
-```
-
-Lists the installed plugins and whether they are signed.
-
-**Example 2**
-
-```powershell
-Get-CCFPlugin | Where-Object Name -EQ 'HelloWorld' | ForEach-Object { Invoke-CCFPlugin -Plugin $_ }
-```
-
-Finds a plugin by name and runs it.
 
 ## Get-CCFRedactionPattern
 
@@ -397,139 +279,6 @@ Initialize-CCFLogger -FileName 'Import.log' -Background
 
 Logs to Import.log from a background worker, for scripts that log many entries.
 
-## Invoke-CCFParallel
-
-Runs a script block for each input object in parallel and returns one result per object.
-
-```powershell
-Invoke-CCFParallel [-ScriptBlock] <scriptblock> [-InputObjects] <array> [[-MaxThreads] <int>] [[-Arguments] <hashtable>] [[-RetryCount] <int>] [[-RetryDelayMs] <int>] [[-OnProgress] <scriptblock>] [<CommonParameters>]
-```
-
-Deprecated: parallel execution will be removed from ArgosCCF in 2.0.0, which keeps only
-logging and redaction. It keeps working in 1.x. Use ForEach-Object -Parallel (PowerShell 7)
-or the ThreadJob module instead.
-Runs -ScriptBlock once per input object in a pool of runspaces, up to -MaxThreads at a
-time, and returns one object per input, in input order, with Target, Output, Status
-("Success" or "Failed"), Error, Retries, Duration (seconds) and Index.
-The script block receives the input object as its first argument and -Arguments as
-the second. It runs in a separate runspace: it cannot see your variables or functions,
-and is rebuilt from its text, so pass everything it needs as arguments.
-A failure in one object does not stop the others; with -RetryCount it is retried after
--RetryDelayMs. Errors written with Write-Error count as failures too (the script block
-runs with $ErrorActionPreference = 'Stop'). Retries is the number of retries made.
--OnProgress is called in your session after each object finishes.
-
-| Parameter | Description |
-|---|---|
-| `-ScriptBlock` | Code to run for each object. Receives ($inputObject, $arguments). |
-| `-InputObjects` | The objects to process. |
-| `-MaxThreads` | Maximum number of objects processed at the same time. Defaults to the number of processors; values below 2 are raised to 2. |
-| `-Arguments` | Hashtable passed to every run as the second argument. |
-| `-RetryCount` | Number of extra attempts for an object whose script block throws. Defaults to 0. |
-| `-RetryDelayMs` | Milliseconds to wait between attempts. Defaults to 500. |
-| `-OnProgress` | Optional script block called as ($processedCount, $totalCount) after each object. |
-
-**Example 1**
-
-```powershell
-Invoke-CCFParallel -InputObjects 'server1', 'server2' -ScriptBlock { param($name) Test-Connection $name -Count 1 -Quiet }
-```
-
-Pings both servers at the same time and returns one result per server.
-
-**Example 2**
-
-```powershell
-$results = Invoke-CCFParallel -InputObjects (1..20) -MaxThreads 4 -RetryCount 2 -ScriptBlock {
-    param($n, $config) Invoke-RestMethod "$($config.Url)/items/$n"
-} -Arguments @{ Url = 'https://api.example.com' }
-$results | Where-Object Status -EQ 'Failed'
-```
-
-Fetches 20 items, four at a time with two retries each, and lists the failures.
-
-## Invoke-CCFPlugin
-
-Runs a plugin from the Plugins folder, with its lifecycle hooks and optional sandboxing.
-
-```powershell
-Invoke-CCFPlugin [-Plugin] <psobject> [[-Arguments] <hashtable>] [-SkipHooks] [-HardenedMode] [<CommonParameters>]
-```
-
-Deprecated: plugins will be removed from ArgosCCF in 2.0.0, which keeps only logging and
-redaction. It keeps working in 1.x. Plugins run only from the Plugins folder of the
-installed module, so copy them again after updating it.
-Checks, in order:
-1. The plugin must be a .ps1 file inside the module's Plugins folder (after resolving
-"..", so paths cannot escape it). Anything else is refused and logged as CRITICAL.
-2. When RequireSignedPlugins is enabled in the ccf_core configuration, the plugin must
-have a valid Authenticode signature. The signature is checked on the same bytes
-that are then run, so the file cannot be swapped between check and execution.
-The setting can be enabled in any layer (factory, module or user settings), and a
-later layer cannot disable it: the user settings are in the data folder, which any
-program running as the user can change.
-Then it runs the plugin's Before-Execute function (if defined), the plugin script with
--Arguments, and its After-Execute function with the result, and returns the result.
-With -HardenedMode the plugin and its hooks run in a new restricted runspace in
-ConstrainedLanguage mode: no cmdlets, no providers, and no calls to non-core .NET
-methods. This reduces what a plugin can do but is not a security boundary without
-WDAC or AppLocker; combine it with RequireSignedPlugins for code you did not write.
-Errors are logged with Write-CCFErrorRecord and the function returns $null.
-
-| Parameter | Description |
-|---|---|
-| `-Plugin` | Plugin object from Get-CCFPlugin, or any object with Name and Path. |
-| `-Arguments` | Hashtable passed to the plugin (and to Before-Execute) as -Arguments. |
-| `-SkipHooks` | Do not run Before-Execute and After-Execute. |
-| `-HardenedMode` | Run the plugin and its hooks in a restricted ConstrainedLanguage runspace. |
-
-**Example 1**
-
-```powershell
-$plugin = Get-CCFPlugin | Where-Object Name -EQ 'SystemInfo'
-Invoke-CCFPlugin -Plugin $plugin -Arguments @{ Detail = 'Full' }
-```
-
-Runs the SystemInfo plugin with an argument.
-
-**Example 2**
-
-```powershell
-Invoke-CCFPlugin -Plugin $plugin -HardenedMode
-```
-
-Runs the plugin in the restricted runspace.
-
-## Merge-CCFConfig
-
-Merges one configuration object into another, recursively.
-
-```powershell
-Merge-CCFConfig [-Base] <psobject> [-Override] <psobject> [<CommonParameters>]
-```
-
-Deprecated: configuration will be removed from ArgosCCF in 2.0.0, which keeps only logging
-and redaction. It keeps working in 1.x.
-Copies every property of -Override into -Base and returns -Base. Nested objects are
-merged property by property, arrays are concatenated, and any other value in -Override
-replaces the one in -Base. -Base is modified in place; pass a copy if you need to keep
-the original. Get-CCFConfig uses it to apply presets and user settings.
-
-| Parameter | Description |
-|---|---|
-| `-Base` | The object to merge into. It is modified. |
-| `-Override` | The object whose values take precedence. |
-
-**Example 1**
-
-```powershell
-$base = '{"Logging":{"Level":"INFO","Path":"Logs"}}' | ConvertFrom-Json
-$over = '{"Logging":{"Level":"DEBUG"}}' | ConvertFrom-Json
-(Merge-CCFConfig -Base $base -Override $over).Logging
-```
-
-Returns Level = DEBUG and Path = Logs.
-
 ## Protect-CCFLogFile
 
 Writes a redacted copy of a log or transcript file.
@@ -601,7 +350,6 @@ Every rule has a time limit. If a rule runs out of time or fails, the whole stri
 replaced instead of being returned unchecked. The input is not modified.
 Write-CCFLog applies this to every message and its data. Use it directly to redact
 text before passing it to another logger, such as Write-PSFMessage or Write-Verbose.
-The alias Redact-CCFSensitiveData is kept for older scripts.
 
 | Parameter | Description |
 |---|---|
@@ -645,7 +393,9 @@ Redacts the message before PSFramework writes it.
 Runs a script block with every new chain head, to save it where the program that writes the log cannot change it.
 
 ```powershell
-Register-CCFChainAnchor [[-ScriptBlock] <scriptblock>] [[-MinimumSeconds] <int>] [<CommonParameters>]
+Register-CCFChainAnchor [[-ScriptBlock] <scriptblock>] [-MinimumSeconds <int>] [<CommonParameters>]
+
+Register-CCFChainAnchor -EventLogSource <string> [-EventId <int>] [-MinimumSeconds <int>] [<CommonParameters>]
 ```
 
 After each line of a chained category is written (Initialize-CCFLogger -Chain), the script block receives an
@@ -653,11 +403,15 @@ object with Path, Category, Hash, ChainId and Time (UTC). Save it somewhere the 
 an event log, another machine, a message. Test-CCFLogChain -ExpectedLastHash with those objects then finds
 lines deleted from the end, which the chain alone cannot show.
 A failure in the script block never stops logging: it is counted, and Test-CCFHealth reports it.
-Without -ScriptBlock, removes the registered one.
+With -EventLogSource, each head is written to the Windows Application log (Get-CCFChainAnchor reads them back).
+Any program can write events with a source name, so a forged anchor can raise a false alarm, but cannot hide a
+deleted line. Without -ScriptBlock or -EventLogSource, removes the registered one.
 
 | Parameter | Description |
 |---|---|
 | `-ScriptBlock` | The script block. It receives the anchor object as its only argument. |
+| `-EventLogSource` | Write each head to the Windows Application log with this source name. The source does not need to be registered; registering it (New-EventLog, as administrator) lets the Event Viewer show the text. |
+| `-EventId` | Event ID for the anchors written with -EventLogSource. Defaults to 1100. |
 | `-MinimumSeconds` | Run it at most once in this many seconds for each log (the default, 0, runs it for every line). The heads skipped are not lost: the next one covers them, but lines deleted in between cannot be told apart. |
 
 **Example 1**
@@ -666,7 +420,15 @@ Without -ScriptBlock, removes the registered one.
 Register-CCFChainAnchor -ScriptBlock { param($a) Write-EventLog -LogName Application -Source MyApp -EventId 1000 -Message "$($a.Category) $($a.Hash)" }
 ```
 
-Keeps every head of the chained logs in the Application event log.
+Keeps every head of the chained logs in the Application event log, with your own code.
+
+**Example 2**
+
+```powershell
+Register-CCFChainAnchor -EventLogSource 'MyApp'
+```
+
+The same, written by ArgosCCF; read them back with Get-CCFChainAnchor -EventLogSource 'MyApp'.
 
 ## Register-CCFLogProvider
 
@@ -796,28 +558,6 @@ Register-CCFSIEMProvider -ProviderScript {
 
 Appends every entry, as JSON, to a file a SIEM agent collects.
 
-## Remove-CCFConfigCache
-
-Clears the in-memory configuration cache.
-
-```powershell
-Remove-CCFConfigCache [<CommonParameters>]
-```
-
-Deprecated: configuration will be removed from ArgosCCF in 2.0.0, which keeps only logging
-and redaction. It keeps working in 1.x.
-Removes every cached result of Get-CCFConfig, so the next call reads the JSON files
-again. Use it after editing configuration files outside Set-CCFUserConfig. The files
-are not touched. The alias Clear-CCFConfigCache is kept for older scripts.
-
-**Example 1**
-
-```powershell
-Remove-CCFConfigCache
-```
-
-Clears the cache.
-
 ## Remove-CCFOldLog
 
 Deletes log files older than -DaysToKeep from the Logs folder, optionally zipping them first.
@@ -829,7 +569,8 @@ Remove-CCFOldLog [[-DaysToKeep] <int>] [-CompressBeforeDelete] [-WhatIf] [-Confi
 Finds *.log files (and rotated *.log.N files) in the Logs folder whose last write is older
 than -DaysToKeep days, optionally compresses them into CCF_Archive_<date>.zip in the same
 folder, deletes them and returns their names. Supports -WhatIf and -Confirm.
-The alias Remove-OldCCFLogs is kept for older scripts.
+A chained log (Initialize-CCFLogger -Chain) keeps its current file, and loses only its oldest rotated copies,
+oldest first: the deletion is recorded in the current file, so Test-CCFLogChain still checks what is left.
 
 | Parameter | Description |
 |---|---|
@@ -884,36 +625,6 @@ Set-CCFLogLevel -Level ERROR
 
 Logs only errors and critical messages.
 
-## Set-CCFUserConfig
-
-Saves user settings for a configuration and clears its cached copies.
-
-```powershell
-Set-CCFUserConfig [-ConfigName] <string> [-ConfigObject] <psobject> [-WhatIf] [-Confirm] [<CommonParameters>]
-```
-
-Deprecated: configuration will be removed from ArgosCCF in 2.0.0. It keeps working in 1.x.
-Writes -ConfigObject as JSON (UTF-8) to <ConfigName>.json in the user settings folder of
-the per-user data folder (Get-CCFPath -Target UserConfigs), outside the module folder,
-so the settings survive module updates. It is the top layer that Get-CCFConfig merges
-over the factory and preset layers. Cached results for that
-name are removed, so the next Get-CCFConfig reads the new values.
-Names must be plain file names; anything that looks like a path is refused.
-Supports -WhatIf and -Confirm.
-
-| Parameter | Description |
-|---|---|
-| `-ConfigName` | Name of the configuration, without .json. Letters, digits, '.', '-' and '_'. |
-| `-ConfigObject` | The settings to save. Usually only the values that differ from the factory file. |
-
-**Example 1**
-
-```powershell
-Set-CCFUserConfig -ConfigName 'ccf_core' -ConfigObject ([pscustomobject]@{ Security = @{ RequireSignedPlugins = $true } })
-```
-
-Requires signed plugins for this installation.
-
 ## Stop-CCFLogWriter
 
 Writes the queued log entries and stops the background writer; later entries are written directly.
@@ -939,58 +650,6 @@ Stop-CCFLogWriter
 ```
 
 Writes what is queued and returns to direct writing.
-
-## Submit-CCFHeartbeat
-
-Records that the registered log provider is alive.
-
-```powershell
-Submit-CCFHeartbeat [<CommonParameters>]
-```
-
-Stores the current time as the provider's last heartbeat. A UI or SIEM provider can call
-it periodically so that a host script can tell whether the provider is still active.
-
-**Example 1**
-
-```powershell
-Submit-CCFHeartbeat
-```
-
-Records a heartbeat now.
-
-## Test-CCFConfigSchema
-
-Validates a configuration object against a simple schema and fills in defaults.
-
-```powershell
-Test-CCFConfigSchema [-Config] <psobject> [-Schema] <hashtable> [<CommonParameters>]
-```
-
-Deprecated: configuration will be removed from ArgosCCF in 2.0.0, which keeps only logging
-and redaction. It keeps working in 1.x.
-The schema is a hashtable with one entry per property. Each entry is a hashtable that
-can contain Mandatory ($true/$false), Type (a .NET type such as [int]), AllowedValues
-(an array) and Default. Missing properties with a Default are added to -Config.
-Returns $true when the configuration is valid; otherwise logs each problem at ERROR
-level and returns $false.
-
-| Parameter | Description |
-|---|---|
-| `-Config` | The configuration object to check. Defaults are added to it. |
-| `-Schema` | Hashtable describing the expected properties. |
-
-**Example 1**
-
-```powershell
-$schema = @{
-    Port = @{ Mandatory = $true; Type = [int] }
-    Mode = @{ AllowedValues = 'Audit', 'Enforce'; Default = 'Audit' }
-}
-Test-CCFConfigSchema -Config ([pscustomobject]@{ Port = 8080 }) -Schema $schema
-```
-
-Returns $true and adds Mode = Audit to the object.
 
 ## Test-CCFEntropyContent
 
@@ -1032,14 +691,13 @@ Returns $false: GUIDs are not treated as secrets.
 
 ## Test-CCFHealth
 
-Checks that the ArgosCCF components are loaded and that the Logs folder is writable.
+Checks that the Logs folder is writable, and that the chain anchor and the background writer have not failed.
 
 ```powershell
 Test-CCFHealth [<CommonParameters>]
 ```
 
-Returns an object with Timestamp, Status ("OK" or "DEGRADED") and Checks, one entry per
-component (Logging, and Configuration, Execution and Plugins when their files are present), one for the
+Returns an object with Timestamp, Status ("OK" or "DEGRADED") and Checks: one for the
 Logs folder, one for the chain anchor when one is registered (no failures) and, with background writing,
 one for the writer (running, with no failed writes).
 Status is DEGRADED when any check fails. Use it at the start of a script, or in a
@@ -1071,13 +729,15 @@ Test-CCFLogChain [-Path] <string> [[-ExpectedLastHash] <Object[]>] [[-ChainId] <
 
 Recomputes the hash of every chained line from the one before. Returns Path, Entries (chained lines),
 Valid, BrokenAt (the first line number that does not match, or $null), Reason, LastHash and ChainId (the
-identifier of the last line). Lines written
+identifier of the last line), ArchivedUntil, MissingHashes and ExternalHashes. Lines written
 before the chain was enabled are skipped; an unchained line after a chained one breaks the chain.
 With -IncludeRotated the rotated copies (.N down to .1) are checked first and the chain must run across
 them from the start; otherwise the first chained line of the file is taken as given, because the line
 before it is in a rotated copy. When rotation deleted the oldest copy, the copy left starts from the hash
 recorded in its first line, and ArchivedUntil is the time of the last line deleted.
-Deleting the last lines is not visible here: compare LastHash with a
+The chain only proves something together with hashes kept where the log's writer cannot change them: whoever
+can write the file can also rewrite it and compute new hashes. ExternalHashes is how many were checked;
+with 0, Valid only means the file is consistent. Deleting the last lines is not visible either: compare LastHash with a
 copy kept elsewhere (-ExpectedLastHash).
 
 | Parameter | Description |
@@ -1181,7 +841,7 @@ Write-CCFAuditRecord [-Action] <string> [-User] <string> [[-Resource] <string>] 
 
 Logs "[AUDIT] <User> <Action> <Resource>" at INFO level in the Audit category, with the
 outcome and metadata as data. Use it for actions that must be traceable, such as
-deletions or configuration changes. The alias Log-Audit is kept for older scripts.
+deletions or configuration changes.
 
 | Parameter | Description |
 |---|---|
@@ -1284,8 +944,7 @@ Write-CCFLogCritical [-Message] <string> [[-Data] <hashtable>] [<CommonParameter
 ```
 
 Shortcut for Write-CCFLog -Level CRITICAL, shown in magenta on the console, for
-failures that need immediate attention. The alias Log-Critical is kept for older
-scripts. Message and Data can be passed by position.
+failures that need immediate attention. Message and Data can be passed by position.
 
 | Parameter | Description |
 |---|---|
@@ -1309,7 +968,7 @@ Write-CCFLogDebug [-Message] <string> [[-Data] <hashtable>] [<CommonParameters>]
 ```
 
 Shortcut for Write-CCFLog -Level DEBUG. Debug messages are only logged after
-Set-CCFLogLevel -Level DEBUG. The alias Log-Debug is kept for older scripts.
+Set-CCFLogLevel -Level DEBUG.
 Message and Data can be passed by position.
 
 | Parameter | Description |
@@ -1334,8 +993,7 @@ Write-CCFLogError [-Message] <string> [[-Data] <hashtable>] [<CommonParameters>]
 ```
 
 Shortcut for Write-CCFLog -Level ERROR, shown in red on the console. It only logs: it
-does not write to the error stream or stop the script. The alias Log-Error is kept for
-older scripts. Message and Data can be passed by position.
+does not write to the error stream or stop the script. Message and Data can be passed by position.
 
 | Parameter | Description |
 |---|---|
@@ -1359,7 +1017,7 @@ Write-CCFLogHeader [-Message] <string> [<CommonParameters>]
 ```
 
 Shortcut for Write-CCFLog -Level INFO -Color Cyan, to mark the start of a phase of a
-script in the log. The alias Log-Header is kept for older scripts.
+script in the log.
 
 | Parameter | Description |
 |---|---|
@@ -1381,7 +1039,7 @@ Logs a message at INFO level.
 Write-CCFLogInfo [-Message] <string> [[-Data] <hashtable>] [<CommonParameters>]
 ```
 
-Shortcut for Write-CCFLog -Level INFO. The alias Log-Info is kept for older scripts.
+Shortcut for Write-CCFLog -Level INFO.
 Message and Data can be passed by position.
 
 | Parameter | Description |
@@ -1405,8 +1063,7 @@ Logs a message at SUCCESS level.
 Write-CCFLogSuccess [-Message] <string> [[-Data] <hashtable>] [<CommonParameters>]
 ```
 
-Shortcut for Write-CCFLog -Level SUCCESS, shown in green on the console. The alias
-Log-Success is kept for older scripts. Message and Data can be passed by position.
+Shortcut for Write-CCFLog -Level SUCCESS, shown in green on the console. Message and Data can be passed by position.
 
 | Parameter | Description |
 |---|---|
@@ -1429,8 +1086,7 @@ Logs a message at WARN level.
 Write-CCFLogWarn [-Message] <string> [[-Data] <hashtable>] [<CommonParameters>]
 ```
 
-Shortcut for Write-CCFLog -Level WARN, shown in yellow on the console. The alias
-Log-Warn is kept for older scripts. Message and Data can be passed by position.
+Shortcut for Write-CCFLog -Level WARN, shown in yellow on the console. Message and Data can be passed by position.
 
 | Parameter | Description |
 |---|---|
@@ -1455,8 +1111,7 @@ Write-CCFSecurityRecord [-Type] <string> [-Source] <string> [[-Payload] <string>
 
 Logs "[SECURITY] <Type> from <Source>" in the Security category, with the type, source,
 payload and metadata as data (redacted like any other log data). Use it when the
-script detects or blocks something suspicious. The alias Log-Attack is kept for older
-scripts.
+script detects or blocks something suspicious.
 
 | Parameter | Description |
 |---|---|

@@ -4,11 +4,12 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.4.x   | :white_check_mark: |
-| < 1.4   | :x:                |
+| 2.0.x   | :white_check_mark: |
+| 1.7.x   | :white_check_mark: |
+| < 1.7   | :x:                |
 
 Versions before 1.4.0 let plugin hooks run outside the sandbox and accepted plugin paths outside the
-`Plugins` folder. Update to 1.4.0 or later.
+`Plugins` folder, and 2.0.0 removes plugins altogether. Update to 2.0.0, or to 1.7.x if you still need them.
 
 ## Reporting a Vulnerability
 
@@ -26,6 +27,4 @@ See [Docs/Security.md](Docs/Security.md) for details and a checklist. In short:
 
 *   **Secret redaction**: keyword- and entropy-based redaction of messages and data before they are logged.
 *   **Log integrity**: one entry per line (line breaks cannot forge entries), no terminal escape sequences, and log files that cannot leave the Logs folder.
-*   **Path checks**: configuration, preset and plugin names and the Logs override cannot point outside their folders.
-*   **Plugin signatures**: optional requirement of a valid Authenticode signature, checked on the exact bytes that run.
-*   **Sandboxing**: optional restricted runspace in Constrained Language Mode for plugins and their hooks. It reduces what a plugin can do but is not a security boundary without WDAC or AppLocker.
+*   **Tamper-evident logs**: chained lines, heads kept outside the file (`Register-CCFChainAnchor`), checks across rotation (`Test-CCFLogChain`).

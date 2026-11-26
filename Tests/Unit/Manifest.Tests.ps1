@@ -29,14 +29,3 @@ Describe 'Source file encoding' {
         ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) | Should -BeTrue
     }
 }
-
-Describe 'Aliases for earlier names' {
-    It 'point to the current commands' {
-        $expected = @{
-            'Log-Info' = 'Write-CCFLogInfo'; 'Log-Attack' = 'Write-CCFSecurityRecord'; 'Catch-CCFError' = 'Write-CCFErrorRecord'
-            'Init-CCFLogger' = 'Initialize-CCFLogger'; 'Redact-CCFSensitiveData' = 'Protect-CCFSensitiveData'
-            'Test-CCFHighEntropy' = 'Test-CCFEntropyContent'; 'Clear-CCFConfigCache' = 'Remove-CCFConfigCache'
-        }
-        foreach ($name in $expected.Keys) { (Get-Alias $name).Definition | Should -Be $expected[$name] }
-    }
-}

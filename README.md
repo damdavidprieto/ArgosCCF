@@ -92,28 +92,20 @@ More in [`Examples/`](Examples/). Each example runs as part of the tests.
 |---|---|
 | Redaction | `Protect-CCFSensitiveData`, `Protect-CCFLogFile`, `Register-CCFSecret`, `Unregister-CCFSecret`, `Register-CCFRedactionPattern`, `Unregister-CCFRedactionPattern`, `Get-CCFRedactionPattern`, `Test-CCFEntropyContent` |
 | Logging | `Initialize-CCFLogger`, `Write-CCFLog`, `Write-CCFLogInfo`, `Write-CCFLogSuccess`, `Write-CCFLogWarn`, `Write-CCFLogError`, `Write-CCFLogCritical`, `Write-CCFLogDebug`, `Write-CCFLogHeader`, `Set-CCFLogLevel`, `Register-CCFLogProvider`, `Register-CCFSIEMProvider`, `Remove-CCFOldLog`, `Get-CCFLogWriter`, `Wait-CCFLogWriter`, `Stop-CCFLogWriter` |
-| Security and audit records | `Write-CCFSecurityRecord`, `Write-CCFAuditRecord`, `Write-CCFErrorRecord`, `Test-CCFLogChain`, `Get-CCFLogChainHead`, `Register-CCFChainAnchor` |
-| Environment | `Get-CCFPath`, `Initialize-CCFEnvironment`, `Test-CCFHealth`, `Submit-CCFHeartbeat` |
-| Deprecated (removed in 2.0.0) | Configuration: `Get-CCFConfig`, `Set-CCFUserConfig`, `Merge-CCFConfig`, `Test-CCFConfigSchema`, `Remove-CCFConfigCache`. Plugins: `Get-CCFPlugin`, `Invoke-CCFPlugin`, `Confirm-CCFPluginSignature`. Parallel execution: `Invoke-CCFParallel` |
+| Security and audit records | `Write-CCFSecurityRecord`, `Write-CCFAuditRecord`, `Write-CCFErrorRecord`, `Test-CCFLogChain`, `Get-CCFLogChainHead`, `Register-CCFChainAnchor`, `Get-CCFChainAnchor` |
+| Environment | `Get-CCFPath`, `Initialize-CCFEnvironment`, `Test-CCFHealth` |
 
-Older names such as `Log-Info`, `Init-CCFLogger`, `Redact-CCFSensitiveData` and `Catch-CCFError` remain
-as aliases. See the [API reference](Docs/API-Reference.md) for every command and alias.
+See the [API reference](Docs/API-Reference.md) for every command.
 
-### Deprecated areas
+### Removed in 2.0.0
 
-A copy of the module that only needs logging and redaction (for example, one bundled with a tool that runs as
-administrator) can leave out `Core/Configuration.ps1`, `Core/Plugins.ps1` and `Core/Execution.ps1`: it loads and exports
-the rest.
-
-
-Up to 1.3, ArgosCCF also offered layered JSON configuration, plugins and parallel execution. They keep
-working in 1.x, unchanged except that user settings are now saved in the per-user data folder, but
-they will be removed in 2.0.0 so the module can focus on logging. Alternatives: the
+The configuration (`Get-CCFConfig`...), plugin (`Invoke-CCFPlugin`...) and parallel execution (`Invoke-CCFParallel`)
+commands, `Submit-CCFHeartbeat` and the old aliases (`Log-Info`, `Init-CCFLogger`, `Redact-CCFSensitiveData`...) are
+gone: ArgosCCF is now only logging and redaction. Alternatives: the
 [Configuration](https://www.powershellgallery.com/packages/Configuration) or
-[PSFramework](https://www.powershellgallery.com/packages/PSFramework) modules for configuration,
-ordinary modules for plugins, and `ForEach-Object -Parallel` (PowerShell 7) or
-[ThreadJob](https://www.powershellgallery.com/packages/ThreadJob) for parallel work. Plugins still run
-only from the `Plugins` folder of the installed module, so copy them again after an update.
+[PSFramework](https://www.powershellgallery.com/packages/PSFramework) modules for configuration, ordinary modules for
+plugins, and `ForEach-Object -Parallel` (PowerShell 7) or [ThreadJob](https://www.powershellgallery.com/packages/ThreadJob)
+for parallel work. Use the full names of the commands; see the [changelog](CHANGELOG.md) for the list.
 
 ## Documentation
 
@@ -121,7 +113,6 @@ only from the `Plugins` folder of the installed module, so copy them again after
 - [Getting started](Docs/Getting-Started.md)
 - [Module structure](Docs/Module-Structure.md)
 - [API reference](Docs/API-Reference.md)
-- Deprecated areas: [configuration guide](Docs/Configuration-Guide.md), [plugin development](Docs/Plugin-Development.md)
 
 ## Development
 

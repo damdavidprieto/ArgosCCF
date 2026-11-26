@@ -529,7 +529,6 @@ function Protect-CCFSensitiveData {
         replaced instead of being returned unchecked. The input is not modified.
         Write-CCFLog applies this to every message and its data. Use it directly to redact
         text before passing it to another logger, such as Write-PSFMessage or Write-Verbose.
-        The alias Redact-CCFSensitiveData is kept for older scripts.
 
     .PARAMETER InputData
         A string, hashtable, object or array to redact. Accepts pipeline input.

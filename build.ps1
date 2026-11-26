@@ -42,8 +42,6 @@ $runtimeItems = @(
     'LICENSE'
     'README.md'
     'Core'
-    'Configs/Factory'
-    'Plugins/Examples'
 )
 
 if ($InstallDependencies) {

@@ -32,16 +32,16 @@ foreach ($command in $commands) {
 }
 $null = $sb.AppendLine()
 
-$null = $sb.AppendLine('## Aliases')
-$null = $sb.AppendLine()
-$null = $sb.AppendLine('Names from earlier versions, kept so existing scripts keep working.')
-$null = $sb.AppendLine()
-$null = $sb.AppendLine('| Alias | Command |')
-$null = $sb.AppendLine('|---|---|')
-foreach ($alias in $module.ExportedAliases.Values | Sort-Object Name) {
-    $null = $sb.AppendLine("| ``$($alias.Name)`` | ``$($alias.Definition)`` |")
+if ($module.ExportedAliases.Count) {
+    $null = $sb.AppendLine('## Aliases')
+    $null = $sb.AppendLine()
+    $null = $sb.AppendLine('| Alias | Command |')
+    $null = $sb.AppendLine('|---|---|')
+    foreach ($alias in $module.ExportedAliases.Values | Sort-Object Name) {
+        $null = $sb.AppendLine("| ``$($alias.Name)`` | ``$($alias.Definition)`` |")
+    }
+    $null = $sb.AppendLine()
 }
-$null = $sb.AppendLine()
 
 foreach ($command in $commands) {
     $help = Get-Help $command.Name -Full

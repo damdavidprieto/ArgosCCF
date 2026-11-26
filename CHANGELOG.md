@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-26
+
+ArgosCCF is now only secure logging and redaction.
+
+### Removed
+- **Configuration**: `Get-CCFConfig`, `Set-CCFUserConfig`, `Merge-CCFConfig`, `Remove-CCFConfigCache`,
+  `Test-CCFConfigSchema`, the `Configs` folder and the `Logging.DefaultPath` setting. Use `Initialize-CCFLogger -Path`
+  to choose the logs folder.
+- **Plugins**: `Get-CCFPlugin`, `Invoke-CCFPlugin`, `Confirm-CCFPluginSignature` and the `Plugins` folder.
+- **Parallel execution**: `Invoke-CCFParallel`. Use `ForEach-Object -Parallel` or ThreadJob.
+- `Submit-CCFHeartbeat`, which nothing read.
+- **Aliases**: `Log-Info`, `Log-Success`, `Log-Warn`, `Log-Error`, `Log-Critical`, `Log-Debug`, `Log-Header`,
+  `Log-Attack`, `Log-Audit`, `Init-CCFLogger`, `Catch-CCFError`, `Redact-CCFSensitiveData`, `Test-CCFHighEntropy`,
+  `Remove-OldCCFLogs`, `Clear-CCFConfigCache`, `Test-CCFPluginSignature`, `Get-CCFPlugins`. Use the full command names.
+- `Get-CCFPath` targets `Configs`, `Plugins`, `Tests` and `UserConfigs`.
+
+### Added
+- **`Register-CCFChainAnchor -EventLogSource`** writes every chain head to the Windows Application log, and
+  **`Get-CCFChainAnchor`** reads them back for `Test-CCFLogChain -ExpectedLastHash`.
+- `Test-CCFLogChain` returns `ExternalHashes`: how many hashes from outside the file were checked.
+
+### Fixed
+- **`Remove-CCFOldLog` no longer breaks a chained log.** It deleted any old file, including the current one or a copy
+  in the middle of the chain. Now it deletes only the oldest rotated copies of a chained log, oldest first, and records
+  them in the current file as rotation does.
+- **A program running as administrator and the same program without elevation can write the same log files.** On
+  Windows the write lock is created so that any account can open it, and a lock that cannot be opened no longer makes
+  the entry fail: it is written without it.
+
 ## [1.7.0] - 2026-11-26
 
 ### Added

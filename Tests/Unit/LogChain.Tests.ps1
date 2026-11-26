@@ -302,3 +302,137 @@ Describe 'Chain anchors and strict writes' {
         finally { $stream.Dispose() }
     }
 }
+
+Describe 'Remove-CCFOldLog on a chained log' {
+    BeforeAll {
+        function New-RotatedLog([string]$Folder) {
+            $null = New-Item -ItemType Directory -Path $Folder -Force
+            InModuleScope ArgosCCF -Parameters @{ Log = (Join-Path $Folder 'CCF_Audit.log') } {
+                param($Log)
+                $pad = 'x' * 300000
+                # A file rotates once it reaches 1 MB, so 4 lines each: 24 lines leave the current file and .1 to .5.
+                foreach ($i in 1..24) {
+                    $line = '[{0}] [INFO] [Audit] [AUDIT] Change{1} {2}' -f [datetime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ'), $i, $pad
+                    $null = Add-CCFLogText -Path $Log -Text ($line + [Environment]::NewLine) -MaxMB 1 -MaxRolling 5 -Chain
+                }
+            }
+            return Join-Path $Folder 'CCF_Audit.log'
+        }
+    }
+
+    It 'deletes only the oldest copies in a row, never the current file, and the chain still checks out' {
+        $folder = Join-Path $TestDrive 'retention'
+        $log = New-RotatedLog $folder
+        Initialize-CCFLogger -Path $folder -Chain Audit
+        $plain = Join-Path $folder 'Other.log'
+        Set-Content -Path $plain -Value 'old'
+        foreach ($f in "$log.5", "$log.4", "$log.2", $log, $plain) { (Get-Item $f).LastWriteTime = (Get-Date).AddDays(-60) }
+        $removed = @(Remove-CCFOldLog -DaysToKeep 30)
+        ($removed | Sort-Object) -join ',' | Should -Be 'CCF_Audit.log.4,CCF_Audit.log.5,Other.log'
+        foreach ($f in $log, "$log.1", "$log.2", "$log.3") { $f | Should -Exist }
+        @(Select-String -Path $log -Pattern '\[CHAIN\] Archived CCF_Audit\.log\.[45]:').Count | Should -Be 2
+        (Test-CCFLogChain -Path $log -IncludeRotated).Valid | Should -BeTrue
+    }
+
+    It 'deletes nothing of a chained log with -WhatIf' {
+        $folder = Join-Path $TestDrive 'whatif'
+        $log = New-RotatedLog $folder
+        Initialize-CCFLogger -Path $folder -Chain Audit
+        (Get-Item "$log.5").LastWriteTime = (Get-Date).AddDays(-60)
+        $null = Remove-CCFOldLog -DaysToKeep 30 -WhatIf
+        "$log.5" | Should -Exist
+        @(Select-String -Path $log -Pattern '\[CHAIN\] Archived').Count | Should -Be 0
+    }
+}
+
+Describe 'Anchors in the event log' {
+    It 'writes and reads back an anchor message' {
+        $back = InModuleScope ArgosCCF {
+            $a = [pscustomobject]@{ Path = 'C:\logs\CCF_Audit.log'; Category = 'Audit'; Hash = ('ab' * 32); ChainId = 'copy-a'; Time = [datetime]::UtcNow }
+            $text = ConvertTo-CCFAnchorMessage -Anchor $a
+            [pscustomobject]@{ Text = $text; Back = ConvertFrom-CCFAnchorMessage -Message $text -Time ([datetime]'2026-11-26T10:00:00Z'); Other = ConvertFrom-CCFAnchorMessage -Message 'something else' -Time (Get-Date) }
+        }
+        $back.Text | Should -Be "ArgosCCF anchor v1 Category=Audit ChainId=copy-a Hash=$('ab' * 32) File=CCF_Audit.log"
+        $back.Back.Hash | Should -Be ('ab' * 32)
+        $back.Back.ChainId | Should -Be 'copy-a'
+        $back.Back.File | Should -Be 'CCF_Audit.log'
+        $back.Other | Should -BeNullOrEmpty
+    }
+
+    It 'passes every head to the event log writer, and filters what it reads back' -Skip:($IsLinux -or $IsMacOS) {
+        $folder = Join-Path $TestDrive 'eventlog'
+        Initialize-CCFLogger -Path $folder -Chain Audit -ChainId 'copy-a'
+        # The mock runs outside the module: what it receives goes to a file.
+        Mock -ModuleName ArgosCCF Write-CCFEventLogEntry { Add-Content -Path (Join-Path $TestDrive 'anchors.txt') -Value ("{0}|{1}|{2}" -f $Source, $EventId, $Message); $true }
+        Register-CCFChainAnchor -EventLogSource 'ArgosCCF Tests' -EventId 1234
+        Write-CCFAuditRecord -Action 'A' -User 'u'
+        Write-CCFAuditRecord -Action 'B' -User 'u'
+        $written = @(Get-Content (Join-Path $TestDrive 'anchors.txt') | ForEach-Object { $s, $i, $m = $_ -split '\|', 3; [pscustomobject]@{ Source = $s; Id = [int]$i; Message = $m } })
+        $written.Count | Should -Be 2
+        $written[0].Source | Should -Be 'ArgosCCF Tests'
+        $written[0].Id | Should -Be 1234
+        $log = Join-Path $folder 'CCF_Audit.log'
+        $written[1].Message | Should -Match ([regex]::Escape((Get-CCFLogChainHead -Path $log)))
+        $events = @($written | ForEach-Object { [pscustomobject]@{ Properties = @([pscustomobject]@{ Value = $_.Message }); TimeCreated = Get-Date } })
+        $events += [pscustomobject]@{ Properties = @([pscustomobject]@{ Value = 'not an anchor' }); TimeCreated = Get-Date }
+        Mock -ModuleName ArgosCCF Get-WinEvent { $events }.GetNewClosure()
+        $anchors = @(Get-CCFChainAnchor -EventLogSource 'ArgosCCF Tests' -EventId 1234 -Category Audit -ChainId 'copy-a')
+        $anchors.Count | Should -Be 2
+        (Test-CCFLogChain -Path $log -ExpectedLastHash $anchors).ExternalHashes | Should -Be 2
+        @(Get-CCFChainAnchor -EventLogSource 'ArgosCCF Tests' -EventId 1234 -ChainId 'other').Count | Should -Be 0
+        Register-CCFChainAnchor
+    }
+
+    It 'writes real events (CI only, so your event log stays clean)' -Skip:(-not $env:GITHUB_ACTIONS -or $IsLinux -or $IsMacOS) {
+        $source = 'ArgosCCF CI ' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+        $folder = Join-Path $TestDrive 'eventlog-ci'
+        Initialize-CCFLogger -Path $folder -Chain Audit
+        Register-CCFChainAnchor -EventLogSource $source
+        Write-CCFAuditRecord -Action 'A' -User 'u'
+        Register-CCFChainAnchor
+        $anchors = @(Get-CCFChainAnchor -EventLogSource $source)
+        $anchors.Count | Should -Be 1
+        (Test-CCFLogChain -Path (Join-Path $folder 'CCF_Audit.log') -ExpectedLastHash $anchors).Valid | Should -BeTrue
+    }
+}
+
+Describe 'Write lock' {
+    It 'writes even when the lock was created by another account and cannot be opened' -Skip:($IsLinux -or $IsMacOS) {
+        $log = Join-Path $TestDrive 'locked\CCF_Audit.log'
+        $null = New-Item -ItemType Directory -Path (Split-Path $log) -Force
+        $name = InModuleScope ArgosCCF -Parameters @{ Log = $log } { param($Log) Get-CCFFileMutexName -Path $Log }
+        # Only SYSTEM can open it, like a lock created with other permissions: the creator keeps its handle.
+        $security = New-Object System.Security.AccessControl.MutexSecurity
+        $security.AddAccessRule((New-Object System.Security.AccessControl.MutexAccessRule ([System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')), 'FullControl', 'Allow'))
+        $created = $false
+        $acl = 'System.Threading.MutexAcl' -as [type]
+        $held = if ($acl) { $acl::Create($false, $name, [ref]$created, $security) } else { New-Object System.Threading.Mutex $false, $name, ([ref]$created), $security }
+        try {
+            $created | Should -BeTrue
+            InModuleScope ArgosCCF -Parameters @{ Log = $log } { param($Log) $null = Add-CCFLogText -Path $Log -Text ("line" + [Environment]::NewLine) }
+            Get-Content $log | Should -Be 'line'
+        }
+        finally { $held.Dispose() }
+    }
+
+    It 'creates the lock so that every account can open it' -Skip:($IsLinux -or $IsMacOS) {
+        $mutex = InModuleScope ArgosCCF { Get-CCFFileMutex -Path (Join-Path $TestDrive 'acl.log') }
+        try {
+            $acl = 'System.Threading.ThreadingAclExtensions' -as [type]
+            $rules = if ($acl) { $acl::GetAccessControl($mutex) } else { $mutex.GetAccessControl() }
+            @($rules.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier]) | ForEach-Object { $_.IdentityReference.Value }) | Should -Contain 'S-1-5-11'
+        }
+        finally { $mutex.Dispose() }
+    }
+}
+
+Describe 'What a check is worth' {
+    It 'says how many hashes from outside the file were checked' {
+        $folder = Join-Path $TestDrive 'external'
+        Initialize-CCFLogger -Path $folder -Chain Audit
+        Write-CCFAuditRecord -Action 'A' -User 'u'
+        $log = Join-Path $folder 'CCF_Audit.log'
+        (Test-CCFLogChain -Path $log).ExternalHashes | Should -Be 0
+        (Test-CCFLogChain -Path $log -ExpectedLastHash (Get-CCFLogChainHead -Path $log)).ExternalHashes | Should -Be 1
+    }
+}

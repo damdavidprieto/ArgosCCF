@@ -70,16 +70,19 @@ Protect-CCFLogFile -Path .\transcript.txt                                 # writ
 
 See [Security](Security.md) for the full list of rules and their limits.
 
-## Deprecated areas
+## Tamper-evident logs
 
-Configuration (`Get-CCFConfig`), plugins (`Invoke-CCFPlugin`) and parallel execution
-(`Invoke-CCFParallel`) keep working in 1.x but will be removed in 2.0.0. Their guides are still
-available: [configuration](Configuration-Guide.md) and [plugin development](Plugin-Development.md).
+```powershell
+Initialize-CCFLogger -Chain Audit -ChainId 'deploy-01'
+Register-CCFChainAnchor -EventLogSource 'MyApp'      # every head also goes to the Application log
+Write-CCFAuditRecord -Action 'Deploy' -User $env:USERNAME -Resource 'web01' -Strict
+$auditLog = Join-Path (Get-CCFPath -Target Logs) 'CCF_Audit.log'
+Test-CCFLogChain -Path $auditLog -IncludeRotated -ChainId 'deploy-01' -ExpectedLastHash (Get-CCFChainAnchor -EventLogSource 'MyApp' -Category Audit)
+```
 
 ## Examples
 
-The `Examples/` folder has one runnable script per area: `01-Logging.ps1`, `05-Redaction.ps1`, and the
-deprecated `02-Configuration.ps1`, `03-Plugins.ps1` and `04-Parallel.ps1`.
+The `Examples/` folder has one runnable script per area: `01-Logging.ps1` and `05-Redaction.ps1`.
 
 ## Next
 

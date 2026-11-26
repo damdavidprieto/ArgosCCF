@@ -32,25 +32,6 @@ function Test-CCFWritableDirectory {
     }
 }
 
-function Test-CCFPathInside {
-    <#
-    .SYNOPSIS
-        True when Path, after resolving "..", is BasePath itself or a folder inside it.
-    #>
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param([string]$Path, [string]$BasePath)
-
-    try {
-        $full = [System.IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
-        $base = [System.IO.Path]::GetFullPath($BasePath).TrimEnd('\', '/')
-    }
-    catch { return $false }
-
-    $comparison = if ($IsLinux -or $IsMacOS) { [StringComparison]::Ordinal } else { [StringComparison]::OrdinalIgnoreCase }
-    return ($full.Equals($base, $comparison) -or $full.StartsWith($base + [System.IO.Path]::DirectorySeparatorChar, $comparison))
-}
-
 function Get-CCFDataRoot {
     <#
     .SYNOPSIS
@@ -111,18 +92,12 @@ function Get-CCFPath {
         Returns the full path of one of the ArgosCCF folders.
 
     .DESCRIPTION
-        Returns the folder used for Root (the module), Core, Configs (the configuration files
-        that ship with the module), Plugins, Tests, Data (the per-user folder for logs and
-        settings, see Initialize-CCFEnvironment), UserConfigs (user settings saved with
-        Set-CCFUserConfig) or Logs. Results are cached for the session.
-        The Logs folder is, in order: the folder given to Initialize-CCFLogger -Path; the
-        Logging.DefaultPath value of the ccf_core configuration, used only when, after
-        resolving "..", it is inside the data folder (a relative value is taken from the data
-        folder), so a configuration file cannot send logs to an arbitrary folder; otherwise
-        Logs inside the data folder.
+        Returns the folder used for Root (the module), Core, Data (the per-user folder for logs, see
+        Initialize-CCFEnvironment) or Logs: the folder given to Initialize-CCFLogger -Path, or Logs inside the
+        data folder. Results are cached for the session.
 
     .PARAMETER Target
-        The folder to return: Root, Core, Configs, Logs, Tests, Plugins, Data or UserConfigs.
+        The folder to return: Root, Core, Logs or Data.
 
     .EXAMPLE
         Get-CCFPath -Target Logs
@@ -138,7 +113,7 @@ function Get-CCFPath {
     [OutputType([string])]
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet('Root', 'Core', 'Configs', 'Logs', 'Tests', 'Plugins', 'Data', 'UserConfigs')]
+        [ValidateSet('Root', 'Core', 'Logs', 'Data')]
         [string]$Target
     )
 
@@ -147,30 +122,11 @@ function Get-CCFPath {
     $memoized = $null
     if ($script:PathCache.TryGetValue($Target, [ref]$memoized)) { return $memoized }
 
-    if ($Target -eq 'Logs' -and (Get-Command -Name 'Get-CCFConfig' -ErrorAction SilentlyContinue)) {
-        $override = $null
-        try { $override = (Get-CCFConfig -ConfigName 'ccf_core').Logging.DefaultPath } catch { $override = $null }
-
-        if ($override) {
-            $targetPath = if ([System.IO.Path]::IsPathRooted($override)) { $override } else { Join-Path $script:DataRoot $override }
-            if (Test-CCFPathInside -Path $targetPath -BasePath $script:DataRoot) {
-                $finalPath = [System.IO.Path]::GetFullPath($targetPath)
-                $null = $script:PathCache.TryAdd($Target, $finalPath)
-                return $finalPath
-            }
-            Write-CCFLogWarn "SECURITY BLOCK: Logging.DefaultPath points outside the data folder and was ignored: $override"
-        }
-    }
-
     $finalPath = switch ($Target) {
         'Root' { $script:ArgosCCFRoot }
         'Core' { Join-Path $script:ArgosCCFRoot 'Core' }
-        'Configs' { Join-Path $script:ArgosCCFRoot 'Configs' }
         'Logs' { $script:LogsPath }
-        'Tests' { Join-Path $script:ArgosCCFRoot 'Tests' }
-        'Plugins' { Join-Path $script:ArgosCCFRoot 'Plugins' }
         'Data' { $script:DataRoot }
-        'UserConfigs' { Join-Path (Join-Path $script:DataRoot 'Configs') 'User' }
     }
 
     $null = $script:PathCache.TryAdd($Target, $finalPath)
@@ -182,12 +138,6 @@ function Get-CCFPath {
 # other and are exported only through the list below (and the manifest).
 $corePath = Join-Path $PSScriptRoot 'Core'
 foreach ($coreFile in 'Redaction.ps1', 'Logging.ps1') { . (Join-Path $corePath $coreFile) }
-# Deprecated components (removed in 2.0.0). A copy of the module that only needs logging and redaction can leave
-# their files out: less code runs, which matters for scripts that run as administrator.
-foreach ($coreFile in 'Configuration.ps1', 'Plugins.ps1', 'Execution.ps1') {
-    $file = Join-Path $corePath $coreFile
-    if (Test-Path -LiteralPath $file) { . $file }
-}
 
 Initialize-CCFEnvironment
 
@@ -195,26 +145,15 @@ Initialize-CCFEnvironment
 $ExecutionContext.SessionState.Module.OnRemove = { Stop-CCFLogWriter -TimeoutSeconds 10 }
 
 # Keep in sync with FunctionsToExport / AliasesToExport in ArgosCCF.psd1 (tests/QA checks it).
-# Only what is defined: a copy without the deprecated components exports the rest.
-$exportFunctions = @(
+Export-ModuleMember -Function @(
     'Get-CCFPath', 'Initialize-CCFEnvironment',
     'Set-CCFLogLevel', 'Register-CCFLogProvider', 'Register-CCFSIEMProvider', 'Initialize-CCFLogger',
     'Write-CCFLog', 'Write-CCFLogInfo', 'Write-CCFLogSuccess', 'Write-CCFLogWarn', 'Write-CCFLogError',
     'Write-CCFLogCritical', 'Write-CCFLogDebug', 'Write-CCFLogHeader',
     'Write-CCFSecurityRecord', 'Write-CCFAuditRecord', 'Write-CCFErrorRecord', 'Remove-CCFOldLog',
-    'Test-CCFLogChain', 'Get-CCFLogChainHead',
+    'Test-CCFLogChain', 'Get-CCFLogChainHead', 'Register-CCFChainAnchor', 'Get-CCFChainAnchor',
     'Get-CCFLogWriter', 'Wait-CCFLogWriter', 'Stop-CCFLogWriter',
-    'Protect-CCFSensitiveData', 'Test-CCFEntropyContent', 'Test-CCFHealth', 'Submit-CCFHeartbeat',
+    'Protect-CCFSensitiveData', 'Test-CCFEntropyContent', 'Test-CCFHealth',
     'Register-CCFSecret', 'Unregister-CCFSecret', 'Register-CCFRedactionPattern', 'Unregister-CCFRedactionPattern',
-    'Get-CCFRedactionPattern', 'Protect-CCFLogFile',
-    'Get-CCFConfig', 'Set-CCFUserConfig', 'Merge-CCFConfig', 'Remove-CCFConfigCache', 'Test-CCFConfigSchema',
-    'Get-CCFPlugin', 'Invoke-CCFPlugin', 'Confirm-CCFPluginSignature',
-    'Invoke-CCFParallel', 'Register-CCFChainAnchor'
+    'Get-CCFRedactionPattern', 'Protect-CCFLogFile'
 )
-$exportAliases = @(
-    'Log-Info', 'Log-Success', 'Log-Warn', 'Log-Error', 'Log-Critical', 'Log-Debug', 'Log-Header',
-    'Log-Attack', 'Log-Audit', 'Init-CCFLogger', 'Catch-CCFError', 'Redact-CCFSensitiveData',
-    'Test-CCFHighEntropy', 'Remove-OldCCFLogs', 'Clear-CCFConfigCache', 'Test-CCFPluginSignature',
-    'Get-CCFPlugins'
-)
-Export-ModuleMember -Function @($exportFunctions | Where-Object { Test-Path -LiteralPath "function:$_" }) -Alias @($exportAliases | Where-Object { Test-Path -LiteralPath "alias:$_" })
