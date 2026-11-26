@@ -64,7 +64,7 @@ Fields that matter:
 }
 ```
 
-ArgosCCF exports 36 functions this way, all with approved verbs. Up to 1.7 it also kept older names as aliases
+ArgosCCF exports 44 functions this way, all with approved verbs. Up to 1.7 it also kept older names as aliases
 (`Log-Info` → `Write-CCFLogInfo`); 2.0.0 removed them.
 
 Validate the manifest after every change:

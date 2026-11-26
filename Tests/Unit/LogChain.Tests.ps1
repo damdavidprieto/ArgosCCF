@@ -350,9 +350,17 @@ Describe 'Anchors in the event log' {
         $back = InModuleScope ArgosCCF {
             $a = [pscustomobject]@{ Path = [System.IO.Path]::Combine('logs', 'CCF_Audit.log'); Category = 'Audit'; Hash = ('ab' * 32); ChainId = 'copy-a'; Time = [datetime]::UtcNow }
             $text = ConvertTo-CCFAnchorMessage -Anchor $a
-            [pscustomobject]@{ Text = $text; Back = ConvertFrom-CCFAnchorMessage -Message $text -Time ([datetime]'2026-11-26T10:00:00Z'); Other = ConvertFrom-CCFAnchorMessage -Message 'something else' -Time (Get-Date) }
+            [pscustomobject]@{
+                Text = $text; Key = Get-CCFFolderKey -Path $a.Path; Back = ConvertFrom-CCFAnchorMessage -Message $text -Time ([datetime]'2026-11-26T10:00:00Z')
+                Other = ConvertFrom-CCFAnchorMessage -Message 'something else' -Time (Get-Date)
+                Old = ConvertFrom-CCFAnchorMessage -Message "ArgosCCF anchor v1 Category=Audit ChainId=- Hash=$('cd' * 32) File=CCF_Audit.log" -Time (Get-Date)
+            }
         }
-        $back.Text | Should -Be "ArgosCCF anchor v1 Category=Audit ChainId=copy-a Hash=$('ab' * 32) File=CCF_Audit.log"
+        $back.Text | Should -Be "ArgosCCF anchor v2 Category=Audit ChainId=copy-a Hash=$('ab' * 32) File=CCF_Audit.log Folder=$($back.Key)"
+        $back.Back.Folder | Should -Be $back.Key
+        # Anchors written before 2.2.0 are still read.
+        $back.Old.Hash | Should -Be ('cd' * 32)
+        $back.Old.Folder | Should -Be ''
         $back.Back.Hash | Should -Be ('ab' * 32)
         $back.Back.ChainId | Should -Be 'copy-a'
         $back.Back.File | Should -Be 'CCF_Audit.log'

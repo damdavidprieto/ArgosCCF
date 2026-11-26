@@ -4,15 +4,18 @@ Generated from the comment-based help by `Docs/New-ApiReference.ps1`. In PowerSh
 
 | Command | Synopsis |
 |---|---|
+| [`Add-CCFFolderHash`](#add-ccffolderhash) | Records the hash of a folder (Get-CCFFolderHash) as a chained line of a folder chain log. |
 | [`Export-CCFEvidence`](#export-ccfevidence) | Packs logs, their rotated copies, their anchors and the result of checking them into one zip file. |
+| [`Get-CCFAnchor`](#get-ccfanchor) | Reads anchors written with Write-CCFAnchor (or in its "<kind> <text>" format by any program). |
 | [`Get-CCFChainAnchor`](#get-ccfchainanchor) | Reads the chain anchors that Register-CCFChainAnchor -EventLogSource wrote to the Windows Application log. |
+| [`Get-CCFFolderHash`](#get-ccffolderhash) | The SHA-256 of a folder and everything in it: the hash of each file with its relative path, in order. |
 | [`Get-CCFLogChainHead`](#get-ccflogchainhead) | The last chain hash of a log, to keep where the log's writer cannot change it. |
 | [`Get-CCFLogWriter`](#get-ccflogwriter) | Shows whether log files are written in the background and how many entries are waiting, written or failed. |
 | [`Get-CCFPath`](#get-ccfpath) | Returns the full path of one of the ArgosCCF folders. |
 | [`Get-CCFRedactionPattern`](#get-ccfredactionpattern) | Lists the redaction rules, in the order they are applied. |
 | [`Initialize-CCFEnvironment`](#initialize-ccfenvironment) | Finds the module folders and the per-user folder for logs and settings. |
 | [`Initialize-CCFLogger`](#initialize-ccflogger) | Sets the log file for the session and rotates it when it is too large. |
-| [`New-CCFChainKey`](#new-ccfchainkey) | Creates the key that signs chained logs, readable only by the account that creates it. |
+| [`New-CCFChainKey`](#new-ccfchainkey) | Creates the key that signs chained logs, readable only by the account that creates it, or by the accounts given. |
 | [`Protect-CCFLogFile`](#protect-ccflogfile) | Writes a redacted copy of a log or transcript file. |
 | [`Protect-CCFSensitiveData`](#protect-ccfsensitivedata) | Returns a copy of the data with passwords, tokens, keys and other secrets replaced by [REDACTED]. |
 | [`Register-CCFChainAnchor`](#register-ccfchainanchor) | Runs a script block with every new chain head, to save it where the program that writes the log cannot change it. |
@@ -21,14 +24,19 @@ Generated from the comment-based help by `Docs/New-ApiReference.ps1`. In PowerSh
 | [`Register-CCFSecret`](#register-ccfsecret) | Registers values that must never appear in a log, wherever they show up. |
 | [`Register-CCFSIEMProvider`](#register-ccfsiemprovider) | Forwards every log entry to a script block, for example to send it to a SIEM. |
 | [`Remove-CCFOldLog`](#remove-ccfoldlog) | Deletes log files older than -DaysToKeep from the Logs folder, optionally zipping them first. |
+| [`Save-CCFChainAnchor`](#save-ccfchainanchor) | Anchors the current head of the chained logs now, whatever -MinimumSeconds says. |
+| [`Set-CCFAnchorStore`](#set-ccfanchorstore) | Chooses where anchors go: the Windows Application log (the default) or memory, for tests. |
 | [`Set-CCFLogLevel`](#set-ccfloglevel) | Sets the minimum level of the messages that are logged. |
+| [`Set-CCFRedactionOption`](#set-ccfredactionoption) | Chooses how the redaction treats PowerShell -EncodedCommand: a fingerprint (the default) or its decoded text. |
 | [`Stop-CCFLogWriter`](#stop-ccflogwriter) | Writes the queued log entries and stops the background writer; later entries are written directly. |
 | [`Test-CCFEntropyContent`](#test-ccfentropycontent) | Tests whether a string looks like a random secret, such as an API key or a token. |
+| [`Test-CCFFolderChain`](#test-ccffolderchain) | Checks a folder chain log (Add-CCFFolderHash) and that the folders still have the hash recorded last. |
 | [`Test-CCFHealth`](#test-ccfhealth) | Checks that the Logs folder is writable, and that the chain anchor and the background writer have not failed. |
 | [`Test-CCFLogChain`](#test-ccflogchain) | Checks that nobody has changed, inserted or deleted lines of a log written with Initialize-CCFLogger -Chain. |
 | [`Unregister-CCFRedactionPattern`](#unregister-ccfredactionpattern) | Removes a pattern added with Register-CCFRedactionPattern. |
 | [`Unregister-CCFSecret`](#unregister-ccfsecret) | Removes values registered with Register-CCFSecret. |
 | [`Wait-CCFLogWriter`](#wait-ccflogwriter) | Waits until every log entry queued so far has been written to disk. |
+| [`Write-CCFAnchor`](#write-ccfanchor) | Writes an anchor of your own to the Windows Application log: a kind and a text, with your source and event ID. |
 | [`Write-CCFAuditRecord`](#write-ccfauditrecord) | Records who did what, on which resource, in CCF_Audit.log. |
 | [`Write-CCFErrorRecord`](#write-ccferrorrecord) | Logs an error record from a catch block to CCF_Errors.log. |
 | [`Write-CCFLog`](#write-ccflog) | Writes a log entry to the console, the registered providers and the log file. |
@@ -41,12 +49,39 @@ Generated from the comment-based help by `Docs/New-ApiReference.ps1`. In PowerSh
 | [`Write-CCFLogWarn`](#write-ccflogwarn) | Logs a message at WARN level. |
 | [`Write-CCFSecurityRecord`](#write-ccfsecurityrecord) | Records a security event, such as an attack attempt or a blocked action, in CCF_Security.log. |
 
+## Add-CCFFolderHash
+
+Records the hash of a folder (Get-CCFFolderHash) as a chained line of a folder chain log.
+
+```powershell
+Add-CCFFolderHash [-Folder] <string> [[-LogPath] <string>] [<CommonParameters>]
+```
+
+Appends "[FOLDER] <hash> files=<n> <path>" to the log (CCF_Folders.log in the Logs folder by default),
+chained like the chained categories: with the identifier, the key and, when Initialize-CCFLogger -WriterInfo
+was used, who wrote it. The new head goes to the Register-CCFChainAnchor registration of the Folders
+category. Test-CCFFolderChain checks the log and that the folders still have the hash recorded last.
+Returns Folder, Hash, Files, Log and Head.
+
+| Parameter | Description |
+|---|---|
+| `-Folder` | The folder, for example a report folder that will not change any more. |
+| `-LogPath` | The folder chain log. Defaults to CCF_Folders.log in the Logs folder. |
+
+**Example 1**
+
+```powershell
+Add-CCFFolderHash -Folder .\reports\20261126-101500
+```
+
+Records the report folder, so changes to it show later.
+
 ## Export-CCFEvidence
 
 Packs logs, their rotated copies, their anchors and the result of checking them into one zip file.
 
 ```powershell
-Export-CCFEvidence [-Path] <string[]> [-Destination] <string> [[-EventLogSource] <string>] [[-EventId] <int>] [[-ChainId] <string>] [[-ChainKeyPath] <string>] [-Force] [-WhatIf] [-Confirm] [<CommonParameters>]
+Export-CCFEvidence [[-Path] <string[]>] [-Destination] <string> [[-EventLogSource] <string>] [[-EventId] <int>] [[-ChainId] <string>] [[-ChainKeyPath] <string>] [[-Folder] <string[]>] [[-FolderLog] <string>] [-Force] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 For each log in -Path, copies the file and its rotated copies (with the file locked, so rotation cannot move
@@ -65,6 +100,8 @@ them. Supports -WhatIf and -Confirm.
 | `-EventId` | The event ID of those anchors. Defaults to 1100. |
 | `-ChainId` | The identifier the logs must carry (see Test-CCFLogChain -ChainId). |
 | `-ChainKeyPath` | The key file the logs were signed with (New-CCFChainKey). |
+| `-Folder` | Folders to include as they are, for example report folders, with their hash (Get-CCFFolderHash). |
+| `-FolderLog` | The folder chain log (Add-CCFFolderHash): each folder in -Folder is compared with the hash recorded last. |
 | `-Force` | Replace the zip file if it exists. |
 
 **Example 1**
@@ -75,36 +112,88 @@ Export-CCFEvidence -Path $auditLog -Destination .\audit-evidence.zip -EventLogSo
 
 Packs the audit log, its anchors and the result of checking them.
 
-## Get-CCFChainAnchor
+## Get-CCFAnchor
 
-Reads the chain anchors that Register-CCFChainAnchor -EventLogSource wrote to the Windows Application log.
+Reads anchors written with Write-CCFAnchor (or in its "<kind> <text>" format by any program).
 
 ```powershell
-Get-CCFChainAnchor [-EventLogSource] <string> [[-EventId] <int>] [[-Category] <string>] [[-ChainId] <string>] [[-File] <string>] [[-MaxEvents] <int>] [<CommonParameters>]
+Get-CCFAnchor [-Source] <string> [[-EventId] <int[]>] [[-Kind] <string[]>] [[-Since] <datetime>] [[-MaxEvents] <int>] [<CommonParameters>]
 ```
 
-Returns one object per anchor, oldest first, with File, Category, Hash, ChainId and Time (UTC). Pass them to
-Test-CCFLogChain -ExpectedLastHash: with their time, anchors of copies that rotation or Remove-CCFOldLog deleted
-are not required. Filter by -Category, -ChainId and -File so the anchors of one log are checked against it.
-Events with the same source and ID that are not anchors are ignored.
+Returns Time (local), Kind, Text, EventId and Source for each event of the source, oldest first. Anchors
+written by other programs in the same format, one word for the kind and the text after a space, are read too.
+Remember that any program can write events with any source name: compare anchors with what they anchor.
 
 | Parameter | Description |
 |---|---|
-| `-EventLogSource` | The source name passed to Register-CCFChainAnchor. |
-| `-EventId` | The event ID passed to Register-CCFChainAnchor. Defaults to 1100. |
-| `-Category` | Only anchors of this log category, for example Audit. |
-| `-ChainId` | Only anchors with this chain identifier (Initialize-CCFLogger -ChainId). |
-| `-File` | Only anchors of this log file name, for example CCF_Audit.log. |
+| `-Source` | The event source name. |
+| `-EventId` | Only these event IDs. |
+| `-Kind` | Only these kinds. |
+| `-Since` | Only anchors written at or after this time. |
 | `-MaxEvents` | The most recent events to read. Defaults to 5000. |
 
 **Example 1**
 
 ```powershell
-$anchors = Get-CCFChainAnchor -EventLogSource 'MyApp' -Category Audit
+Get-CCFAnchor -Source 'MyApp' -EventId 1001 -Kind 'report' -Since (Get-Date).AddDays(-30)
+```
+
+The report anchors of the last 30 days.
+
+## Get-CCFChainAnchor
+
+Reads the chain anchors that Register-CCFChainAnchor -EventLogSource wrote to the Windows Application log.
+
+```powershell
+Get-CCFChainAnchor [-EventLogSource] <string> [[-EventId] <int>] [[-Path] <string>] [[-Category] <string>] [[-ChainId] <string>] [[-File] <string>] [[-MaxEvents] <int>] [<CommonParameters>]
+```
+
+Returns one object per anchor, oldest first, with File, Folder, Category, Hash, ChainId and Time (UTC). Pass
+them to Test-CCFLogChain -ExpectedLastHash: with their time, anchors of copies that rotation or Remove-CCFOldLog
+deleted are not required. Filter by -Path (the log file: its name and its folder), -Category, -ChainId and
+-File, so the anchors of one log are checked against it, and not those of a log with the same name in another
+folder. Events with the same source and ID that are not anchors are ignored.
+
+| Parameter | Description |
+|---|---|
+| `-EventLogSource` | The source name passed to Register-CCFChainAnchor. |
+| `-EventId` | The event ID passed to Register-CCFChainAnchor. Defaults to 1100. |
+| `-Path` | Only anchors of this log file. Anchors written before version 2.2.0 carry the file name but not the folder, and are matched by name. |
+| `-Category` | Only anchors of this log category, for example Audit. |
+| `-ChainId` | Only anchors with this chain identifier (Initialize-CCFLogger -ChainId). |
+| `-File` | Only anchors of this log file name, for example CCF_Audit.log, in any folder. |
+| `-MaxEvents` | The most recent events to read. Defaults to 5000. |
+
+**Example 1**
+
+```powershell
+$anchors = Get-CCFChainAnchor -EventLogSource 'MyApp' -Path $auditLog
 Test-CCFLogChain -Path $auditLog -IncludeRotated -ExpectedLastHash $anchors
 ```
 
 Checks the audit log and that no anchored line is missing.
+
+## Get-CCFFolderHash
+
+The SHA-256 of a folder and everything in it: the hash of each file with its relative path, in order.
+
+```powershell
+Get-CCFFolderHash [-Path] <string> [<CommonParameters>]
+```
+
+Returns Path, Hash and Files. The hash covers every file under the folder (hidden ones too) by relative path,
+with '/' as separator, in ordinal order, as "<path>=<sha256>" lines: renaming, changing, adding or removing
+a file changes it. Empty folders do not count.
+
+| Parameter | Description |
+|---|---|
+| `-Path` | The folder. |
+
+**Example 1**
+
+```powershell
+(Get-CCFFolderHash -Path .\reports\20261126-101500).Hash
+```
 
 ## Get-CCFLogChainHead
 
@@ -328,24 +417,30 @@ A scheduled task: signed audit log, with who wrote each line, and nothing on the
 
 ## New-CCFChainKey
 
-Creates the key that signs chained logs, readable only by the account that creates it.
+Creates the key that signs chained logs, readable only by the account that creates it, or by the accounts given.
 
 ```powershell
-New-CCFChainKey [-Path] <string> [-Force] [-WhatIf] [-Confirm] [<CommonParameters>]
+New-CCFChainKey [-Path] <string> [[-Reader] <string[]>] [-Force] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
-Writes 32 random bytes, protected with Windows DPAPI for the current account, to -Path, and returns the file.
-Pass the file to Initialize-CCFLogger -ChainKeyPath: every chained line then carries an HMAC with the key
-(" #mac=" instead of " #chain="), so whoever can write the log but cannot read the key cannot add, change or
-rewrite lines without Test-CCFLogChain noticing. Create it with the account that writes the log, for example
-the administrator account or SYSTEM of a scheduled task: other accounts, including administrators, cannot
-read it without that account's credentials. A process running as that account can use the key, so keep
-anchors (Register-CCFChainAnchor) too. Keep the file: without it, logs signed with it cannot be checked.
-Windows only. Supports -WhatIf and -Confirm.
+Writes 32 random bytes, protected with Windows DPAPI, to -Path, and returns the file. Pass the file to
+Initialize-CCFLogger -ChainKeyPath: every chained line then carries an HMAC with the key (" #mac=" instead of
+" #chain="), so whoever can write the log but cannot read the key cannot add, change or rewrite lines without
+Test-CCFLogChain noticing.
+By default the key is protected for the current account: create it with the account that writes the log.
+Other accounts, including administrators, cannot read it without that account's credentials.
+With -Reader, for logs written by several accounts (a daily account and an administrator account), the key is
+protected for this computer and the file can be read only by those accounts, SYSTEM and Administrators: its
+permissions are what protects it. Any process running as one of those accounts can sign lines, so this
+protects against the other accounts of the computer, not against malware running as a reader.
+A process running as an account that can read the key can use it, so keep anchors (Register-CCFChainAnchor)
+too. Keep the file: without it, logs signed with it cannot be checked. Windows only. Supports -WhatIf and
+-Confirm.
 
 | Parameter | Description |
 |---|---|
 | `-Path` | The key file to create, outside the Logs folder. |
+| `-Reader` | Accounts (DOMAIN\user, user, or SIDs) that may read the key, besides the current account, SYSTEM and Administrators. The key then works for each of them, on this computer only. |
 | `-Force` | Replace an existing key file. Logs signed with the old key can no longer be checked. |
 
 **Example 1**
@@ -356,6 +451,14 @@ Initialize-CCFLogger -Chain Audit -ChainKeyPath 'C:\ProgramData\MyApp\chain.key'
 ```
 
 Signs the audit log with a key only this account can read.
+
+**Example 2**
+
+```powershell
+New-CCFChainKey -Path 'C:\ProgramData\MyApp\chain.key' -Reader "$env:COMPUTERNAME\daily"
+```
+
+Run as the administrator account: the key works for it and for the daily account, and for no other.
 
 ## Protect-CCFLogFile
 
@@ -471,9 +574,9 @@ Redacts the message before PSFramework writes it.
 Runs a script block with every new chain head, to save it where the program that writes the log cannot change it.
 
 ```powershell
-Register-CCFChainAnchor [[-ScriptBlock] <scriptblock>] [-MinimumSeconds <int>] [<CommonParameters>]
+Register-CCFChainAnchor [[-ScriptBlock] <scriptblock>] [-Category <string[]>] [-MinimumSeconds <int>] [<CommonParameters>]
 
-Register-CCFChainAnchor -EventLogSource <string> [-EventId <int>] [-MinimumSeconds <int>] [<CommonParameters>]
+Register-CCFChainAnchor -EventLogSource <string> [-EventId <int>] [-Category <string[]>] [-MinimumSeconds <int>] [<CommonParameters>]
 ```
 
 After each line of a chained category is written (Initialize-CCFLogger -Chain), the script block receives an
@@ -483,14 +586,18 @@ lines deleted from the end, which the chain alone cannot show.
 A failure in the script block never stops logging: it is counted, and Test-CCFHealth reports it.
 With -EventLogSource, each head is written to the Windows Application log (Get-CCFChainAnchor reads them back).
 Any program can write events with a source name, so a forged anchor can raise a false alarm, but cannot hide a
-deleted line. Without -ScriptBlock or -EventLogSource, removes the registered one.
+deleted line.
+With -Category, the registration applies only to those categories, each with its own -MinimumSeconds; without
+it, to every category that has no registration of its own. Without -ScriptBlock or -EventLogSource, removes the
+registration of the given categories, or every registration.
 
 | Parameter | Description |
 |---|---|
 | `-ScriptBlock` | The script block. It receives the anchor object as its only argument. |
 | `-EventLogSource` | Write each head to the Windows Application log with this source name. The source does not need to be registered; registering it (New-EventLog, as administrator) lets the Event Viewer show the text. |
 | `-EventId` | Event ID for the anchors written with -EventLogSource. Defaults to 1100. |
-| `-MinimumSeconds` | Run it at most once in this many seconds for each log (the default, 0, runs it for every line). The heads skipped are not lost: the next one covers them, but lines deleted in between cannot be told apart. |
+| `-Category` | Only these categories, for example 'Vigilancia'. Other categories keep their own registration. |
+| `-MinimumSeconds` | Run it at most once in this many seconds for each log (the default, 0, runs it for every line). The heads skipped are not lost: the next one covers them, but lines deleted in between cannot be told apart. Use Save-CCFChainAnchor at the end of a task to anchor the last head anyway. |
 
 **Example 1**
 
@@ -507,6 +614,14 @@ Register-CCFChainAnchor -EventLogSource 'MyApp'
 ```
 
 The same, written by ArgosCCF; read them back with Get-CCFChainAnchor -EventLogSource 'MyApp'.
+
+**Example 3**
+
+```powershell
+Register-CCFChainAnchor -EventLogSource 'MyApp' -EventId 1101 -Category 'Monitor' -MinimumSeconds 3600
+```
+
+Anchors the Monitor log at most once an hour; the other categories keep their own registration.
 
 ## Register-CCFLogProvider
 
@@ -672,6 +787,55 @@ Remove-CCFOldLog -DaysToKeep 7 -WhatIf
 
 Shows which logs would be deleted.
 
+## Save-CCFChainAnchor
+
+Anchors the current head of the chained logs now, whatever -MinimumSeconds says.
+
+```powershell
+Save-CCFChainAnchor [[-Category] <string[]>] [<CommonParameters>]
+```
+
+For each chained category of the session (or the ones given), passes the last hash of its log to its
+Register-CCFChainAnchor registration, and returns Category, Path and Hash of what it anchored. Use it at the
+end of a task that anchors at most once in a while, so lines deleted after the last anchor still show.
+
+| Parameter | Description |
+|---|---|
+| `-Category` | Only these categories. By default, every chained category (Initialize-CCFLogger -Chain). |
+
+**Example 1**
+
+```powershell
+Save-CCFChainAnchor -Category 'Monitor'
+```
+
+Anchors the head of CCF_Monitor.log now.
+
+## Set-CCFAnchorStore
+
+Chooses where anchors go: the Windows Application log (the default) or memory, for tests.
+
+```powershell
+Set-CCFAnchorStore [[-Store] <string>] [-Clear] [<CommonParameters>]
+```
+
+With -Store Memory, Write-CCFAnchor, Register-CCFChainAnchor -EventLogSource and the commands that read
+anchors (Get-CCFAnchor, Get-CCFChainAnchor, Test-CCFLogChain -EventLogSource) use a list in memory instead of
+the event log, for this session only. Switching to Memory, or -Clear, empties the list.
+
+| Parameter | Description |
+|---|---|
+| `-Store` | EventLog or Memory. |
+| `-Clear` | Empty the anchors kept in memory. |
+
+**Example 1**
+
+```powershell
+Set-CCFAnchorStore -Store Memory
+```
+
+The tests of a program write and read anchors without touching the event log.
+
 ## Set-CCFLogLevel
 
 Sets the minimum level of the messages that are logged.
@@ -703,6 +867,32 @@ Set-CCFLogLevel -Level ERROR
 ```
 
 Logs only errors and critical messages.
+
+## Set-CCFRedactionOption
+
+Chooses how the redaction treats PowerShell -EncodedCommand: a fingerprint (the default) or its decoded text.
+
+```powershell
+Set-CCFRedactionOption [-EncodedCommand] <string> [<CommonParameters>]
+```
+
+By default the text of -EncodedCommand becomes "[ENCODED <fingerprint> <n> chars]". With -EncodedCommand
+Decode it becomes "[DECODED <fingerprint> <n> chars: <text>]": the command decoded (UTF-16, as PowerShell
+reads it) and redacted like any other text, so a monitoring tool keeps what was run as evidence without
+keeping the secrets in it. A text that does not decode to readable text keeps the fingerprint. The encoded
+text itself is never kept: it could carry a password that no rule would see. For this session only.
+
+| Parameter | Description |
+|---|---|
+| `-EncodedCommand` | Fingerprint or Decode. |
+
+**Example 1**
+
+```powershell
+Set-CCFRedactionOption -EncodedCommand Decode
+```
+
+Logs what encoded PowerShell commands ran, with their secrets redacted.
 
 ## Stop-CCFLogWriter
 
@@ -769,6 +959,41 @@ Test-CCFEntropyContent -String '3f2504e0-4f89-11d3-9a0c-0305e82c3301'
 ```
 
 Returns $false: GUIDs are not treated as secrets.
+
+## Test-CCFFolderChain
+
+Checks a folder chain log (Add-CCFFolderHash) and that the folders still have the hash recorded last.
+
+```powershell
+Test-CCFFolderChain [[-LogPath] <string>] [[-Root] <string>] [[-KeepDays] <int>] [[-ExpectedLastHash] <Object[]>] [[-EventLogSource] <string>] [[-EventId] <int>] [[-ChainKeyPath] <string>] [[-ChainId] <string>] [-IncludeRotated] [<CommonParameters>]
+```
+
+Runs Test-CCFLogChain on the log (with -IncludeRotated, -ExpectedLastHash, -EventLogSource, -ChainKeyPath and
+-ChainId as given), then compares each folder with the last hash recorded for it. Returns Valid, Reason,
+Entries, Folders, Changed (folders whose content changed), Missing (folders that no longer exist),
+DeletedEarly (missing folders recorded less than -KeepDays ago) and Chain (the Test-CCFLogChain result).
+Folders deleted on purpose, for example by age, are listed in Missing but do not make the result invalid,
+unless they were recorded less than -KeepDays ago.
+
+| Parameter | Description |
+|---|---|
+| `-LogPath` | The folder chain log. Defaults to CCF_Folders.log in the Logs folder. |
+| `-Root` | Look for each folder by its name in this folder, instead of at the path recorded (the folders were moved). |
+| `-KeepDays` | Folders are kept at least this many days: a missing folder recorded more recently makes the result invalid. |
+| `-IncludeRotated` | Also check the rotated copies of the log. |
+| `-ExpectedLastHash` | Heads of the log kept elsewhere (see Test-CCFLogChain). |
+| `-EventLogSource` | Check the anchors of the log in the event log (see Test-CCFLogChain). |
+| `-EventId` | The event ID of those anchors. Defaults to 1100. |
+| `-ChainKeyPath` | The key the log was signed with (see Test-CCFLogChain). |
+| `-ChainId` | The identifier the log must carry (see Test-CCFLogChain). |
+
+**Example 1**
+
+```powershell
+Test-CCFFolderChain -IncludeRotated -KeepDays 180 -EventLogSource 'MyApp'
+```
+
+Checks the report folders, which are deleted after 180 days.
 
 ## Test-CCFHealth
 
@@ -844,7 +1069,7 @@ copy kept elsewhere (-ExpectedLastHash).
 | `-IncludeRotated` | Also check the rotated copies and the link between them. |
 | `-ExpectedLastHash` | Last hashes saved earlier (Get-CCFLogChainHead), one or several: strings, or objects with Hash and Time (when the hash was saved). A hash saved before the last line of a copy that rotation deleted is not required any more. With plain strings, every hash must still be in the log. If the chain no longer contains any of them, lines were deleted or the log was rewritten. With hashes saved over time, a forged later copy cannot hide that an earlier one is gone. |
 | `-ChainId` | The identifier this log must carry (Initialize-CCFLogger -ChainId). From the first line that has one, every line must have this one: a line written by another program, or by another copy of the same program, breaks the chain. Keep the identifier where the log's writer cannot change it, and pass only the saved hashes that belong to it: an identifier read from the log itself proves nothing. |
-| `-EventLogSource` | Also check the anchors that Register-CCFChainAnchor -EventLogSource wrote for this file (Get-CCFChainAnchor, filtered by the file name and by -ChainId when given). Windows only. |
+| `-EventLogSource` | Also check the anchors that Register-CCFChainAnchor -EventLogSource wrote for this file (Get-CCFChainAnchor, filtered by the file, its folder and -ChainId when given). Windows only. |
 | `-EventId` | The event ID of those anchors. Defaults to 1100. |
 | `-ChainKeyPath` | The key file the log was signed with (New-CCFChainKey). Without it, the key given to Initialize-CCFLogger in this session is used. A log with signed lines cannot be checked without the key. With the key, the last line must be signed and no unsigned line may follow a signed one, so the log cannot be rewritten without it. |
 | `-ClockToleranceSeconds` | How far back the time of a line may be from the line before without a clock warning. Defaults to 5: lines from several processes can reach the file a little out of order. |
@@ -940,6 +1165,36 @@ Write-CCFLogInfo 'Report generated'; Wait-CCFLogWriter; Copy-Item (Get-CCFPath -
 ```
 
 Makes sure the entry is in the file before the logs are copied.
+
+## Write-CCFAnchor
+
+Writes an anchor of your own to the Windows Application log: a kind and a text, with your source and event ID.
+
+```powershell
+Write-CCFAnchor [-Source] <string> [-EventId] <int> [-Kind] <string> [[-Text] <string>] [<CommonParameters>]
+```
+
+Writes "<Kind> <Text>" as an information event with the source and event ID you choose, and returns $true when
+the event log accepted it. Use it to keep, out of reach of the program that wrote them, hashes and
+identifiers that are not log heads: the hash of a report, of a settings file, a heartbeat. Get-CCFAnchor
+reads them back. The source does not need to be registered. The text is not redacted: write hashes and
+identifiers, never secrets. Line breaks and control characters are removed. Windows only (or the memory
+store, see Set-CCFAnchorStore).
+
+| Parameter | Description |
+|---|---|
+| `-Source` | The event source name, for example 'MyApp'. |
+| `-EventId` | The event ID; one per kind lets readers filter by ID. |
+| `-Kind` | What the anchor is: letters, digits, '.', '-' and '_'. |
+| `-Text` | The text: a hash, a name, a time. |
+
+**Example 1**
+
+```powershell
+Write-CCFAnchor -Source 'MyApp' -EventId 1001 -Kind 'report' -Text "20261126-101500 $hash"
+```
+
+Keeps the hash of a report in the Application log.
 
 ## Write-CCFAuditRecord
 

@@ -137,7 +137,7 @@ Describe 'Checks in one step' {
         $r = Test-CCFLogChain -Path $log -EventLogSource 'ArgosCCF Tests'
         $r.Valid | Should -BeTrue
         $r.ExternalHashes | Should -Be 1
-        Should -Invoke -ModuleName ArgosCCF Get-CCFChainAnchor -Times 1 -ParameterFilter { $File -eq 'CCF_Audit.log' -and $EventLogSource -eq 'ArgosCCF Tests' }
+        Should -Invoke -ModuleName ArgosCCF Get-CCFChainAnchor -Times 1 -ParameterFilter { $Path -eq $log -and $EventLogSource -eq 'ArgosCCF Tests' }
         Mock -ModuleName ArgosCCF Get-CCFChainAnchor { [pscustomobject]@{ File = 'CCF_Audit.log'; Category = 'Audit'; Hash = ('ef' * 32); ChainId = ''; Time = [datetime]::UtcNow } }
         (Test-CCFLogChain -Path $log -EventLogSource 'ArgosCCF Tests').MissingHashes | Should -Be ('ef' * 32)
     }

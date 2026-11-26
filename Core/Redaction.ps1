@@ -38,7 +38,8 @@ $script:CCFKeyMetadataRegex = [regex]::new('(?:length|len|age|count|required|exp
 $script:CCFCommandNamePattern = '(?:' + (@(foreach ($group in 'Common', 'Communications', 'Data', 'Diagnostic', 'Lifecycle', 'Security', 'Other') {
             ("System.Management.Automation.Verbs$group" -as [type]).GetFields().Name
         }) -join '|') + ')-[A-Za-z][A-Za-z0-9]*'
-$script:CCFNotSecretValueRegex = [regex]::new('^(?:\$?(?:true|false|null)$|none$|[{\[]$)', 'IgnoreCase, CultureInvariant')
+# yes/no: options such as net user /passwordreq:yes or /passwordchg:no, whose value is what an audit needs.
+$script:CCFNotSecretValueRegex = [regex]::new('^(?:\$?(?:true|false|null)$|(?:none|yes|no)$|[{\[]$)', 'IgnoreCase, CultureInvariant')
 $script:CCFCodeValueRegex = [regex]::new('^(?:\$[A-Za-z_{(]|@[({]|[{\[(]|(?:if|foreach|switch)$|' + $script:CCFCommandNamePattern + '$)', 'IgnoreCase, CultureInvariant')
 
 # One command-line argument: quoted parts and plain characters, joined as a shell would. An unclosed quote runs to the end.
@@ -120,7 +121,7 @@ function Invoke-CCFProgramRule {
         while ($program.Success -and $program.Index -lt $lineStart) { $program = $program.NextMatch() }
         if (-not $program.Success) { break }
         if ($program.Index -ge $m.Index) { continue }
-        $value = if ($Rule.Fingerprint) { Get-CCFFingerprint -Text $m.Groups['v'].Value.Trim('"', "'") } else { '[REDACTED]' }
+        $value = if ($Rule.Fingerprint) { ConvertTo-CCFEncodedValue -Text $m.Groups['v'].Value.Trim('"', "'") } else { '[REDACTED]' }
         $null = $out.Append($Text, $position, $m.Index - $position).Append($m.Groups['k'].Value).Append($value)
         $position = $m.Index + $m.Length
     }
@@ -344,6 +345,59 @@ function Get-CCFFingerprint {
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try { $hash = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Text)) } finally { $sha.Dispose() }
     return '[ENCODED {0} {1} chars]' -f [BitConverter]::ToString($hash, 0, 4).Replace('-', '').ToLowerInvariant(), $Text.Length
+}
+
+# Set-CCFRedactionOption -EncodedCommand: Fingerprint (the default) or Decode.
+$script:CCFEncodedMode = 'Fingerprint'
+$script:CCFDecoding = $false
+
+function ConvertTo-CCFEncodedValue {
+    <#
+    .SYNOPSIS
+        What replaces the text of a PowerShell -EncodedCommand: its fingerprint, or its decoded text with secrets redacted.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory = $true)][string]$Text)
+    $mark = Get-CCFFingerprint -Text $Text
+    # One level only: a command encoded inside the decoded one keeps its fingerprint.
+    if ($script:CCFEncodedMode -ne 'Decode' -or $script:CCFDecoding) { return $mark }
+    try { $decoded = [System.Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($Text)) }
+    catch { return $mark }
+    # Not PowerShell text (another encoding, or binary data): the fingerprint only. Commands are almost all plain
+    # ASCII and Latin-1 letters; random bytes decode to other scripts.
+    $plain = ([regex]::Matches($decoded, '[\x20-\x7E\t\r\n\u00A0-\u00FF]')).Count
+    if ($decoded -match '[\x00-\x08\x0E-\x1F\uFFFD]' -or $plain -lt 0.9 * $decoded.Length) { return $mark }
+    $script:CCFDecoding = $true
+    try { $clean = Invoke-CCFTextRedaction -Text $decoded }
+    finally { $script:CCFDecoding = $false }
+    return $mark.Replace('[ENCODED ', '[DECODED ').TrimEnd(']') + ": $clean]"
+}
+
+function Set-CCFRedactionOption {
+    <#
+    .SYNOPSIS
+        Chooses how the redaction treats PowerShell -EncodedCommand: a fingerprint (the default) or its decoded text.
+
+    .DESCRIPTION
+        By default the text of -EncodedCommand becomes "[ENCODED <fingerprint> <n> chars]". With -EncodedCommand
+        Decode it becomes "[DECODED <fingerprint> <n> chars: <text>]": the command decoded (UTF-16, as PowerShell
+        reads it) and redacted like any other text, so a monitoring tool keeps what was run as evidence without
+        keeping the secrets in it. A text that does not decode to readable text keeps the fingerprint. The encoded
+        text itself is never kept: it could carry a password that no rule would see. For this session only.
+
+    .PARAMETER EncodedCommand
+        Fingerprint or Decode.
+
+    .EXAMPLE
+        Set-CCFRedactionOption -EncodedCommand Decode
+
+        Logs what encoded PowerShell commands ran, with their secrets redacted.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Changes a setting in memory only.')]
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][ValidateSet('Fingerprint', 'Decode')][string]$EncodedCommand)
+    $script:CCFEncodedMode = $EncodedCommand
 }
 
 function Sync-CCFSecretRegex {

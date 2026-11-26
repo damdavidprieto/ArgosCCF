@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-26
+
+### Added
+- **Anchors of your own**: `Write-CCFAnchor` writes "<kind> <text>" to the Application log with your source and event
+  ID, and `Get-CCFAnchor` reads them by source, event ID, kind and time. Anchors other programs wrote in that format
+  before are read as they are.
+- `Set-CCFAnchorStore -Store Memory`: anchors go to memory instead of the event log, for tests.
+- **Anchors per category**: `Register-CCFChainAnchor -Category` registers a target and an interval for some
+  categories only; the registration without `-Category` covers the rest. `Save-CCFChainAnchor` anchors the current
+  heads now, whatever the interval.
+- **Chains of folders**: `Get-CCFFolderHash`, `Add-CCFFolderHash` (a chained line per folder in CCF_Folders.log)
+  and `Test-CCFFolderChain` (the chain, folders changed, folders missing, and those deleted before `-KeepDays`).
+  `Export-CCFEvidence -Folder -FolderLog` packs folders and compares them with their recorded hash.
+- `Set-CCFRedactionOption -EncodedCommand Decode`: a PowerShell `-EncodedCommand` becomes its decoded text, with the
+  secrets in it redacted, after the same fingerprint. The default is still the fingerprint alone.
+- `New-CCFChainKey -Reader`: a key for logs written by several accounts, protected for the computer and readable
+  only by those accounts, SYSTEM and Administrators.
+
+### Changed
+- Chain anchors written to the event log carry a key of the log's folder (format v2). `Get-CCFChainAnchor -Path`
+  and `Test-CCFLogChain -EventLogSource` take only the anchors of that file, so a copy of the program in another
+  folder does not cause false alarms. Version 1 anchors are still read, matched by file name.
+
+### Fixed
+- `net user ... /passwordreq:yes` and `/passwordchg:no` are no longer redacted: yes and no are not passwords.
+
 ## [2.1.0] - 2026-11-26
 
 ### Added

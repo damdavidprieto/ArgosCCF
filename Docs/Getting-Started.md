@@ -87,6 +87,20 @@ Export-CCFEvidence -Path $auditLog -Destination .\audit.zip -EventLogSource 'MyA
 
 For a scheduled task or a service, add `-NoConsole`: nobody reads that console, and writing to it costs time.
 
+```powershell
+# A log that is checked once a day: anchored at most once an hour, and at the end of each run.
+Register-CCFChainAnchor -EventLogSource 'MyApp' -EventId 1106 -Category 'Monitor' -MinimumSeconds 3600
+Save-CCFChainAnchor -Category 'Monitor'
+
+# Report folders: recorded when they are finished, checked later, deleted after 180 days.
+Add-CCFFolderHash -Folder $reportFolder
+Test-CCFFolderChain -IncludeRotated -KeepDays 180
+
+# Anchors of your own, in the format "<kind> <text>".
+Write-CCFAnchor -Source 'MyApp' -EventId 1003 -Kind 'settings' -Text $settingsHash
+Get-CCFAnchor -Source 'MyApp' -EventId 1003 -Since (Get-Date).AddDays(-30)
+```
+
 ## Examples
 
 The `Examples/` folder has one runnable script per area: `01-Logging.ps1` and `05-Redaction.ps1`.
