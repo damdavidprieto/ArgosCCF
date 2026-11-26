@@ -45,30 +45,18 @@ Describe 'Comment-based help for <Name>' -ForEach $commands {
         $parameters = @($command.Parameters.Keys | Where-Object { $_ -notin $commonParameters })
     }
 
-    It 'has a synopsis' {
-        $help.Synopsis | Should -Not -BeNullOrEmpty
-        $help.Synopsis | Should -Not -Match "^\s*$([regex]::Escape($Name))\s"
-    }
-
-    It 'has a description of more than 40 characters' {
-        ($help.Description.Text -join ' ').Trim().Length | Should -BeGreaterThan 40
-    }
-
-    It 'has at least one example' {
-        @($help.Examples.Example).Count | Should -BeGreaterThan 0
-        ($help.Examples.Example | Select-Object -First 1).Code | Should -Not -BeNullOrEmpty
-    }
-
-    It 'describes every parameter' {
-        $undocumented = foreach ($parameter in $parameters) {
-            $entry = $help.Parameters.Parameter | Where-Object Name -EQ $parameter
-            if (-not ($entry.Description.Text -join '').Trim()) { $parameter }
-        }
-        $undocumented | Should -BeNullOrEmpty
-    }
-
-    It 'is an advanced function' {
-        $command.CmdletBinding | Should -BeTrue
+    It 'is an advanced function with complete help' {
+        $missing = @(
+            if (-not $help.Synopsis -or $help.Synopsis -match "^\s*$([regex]::Escape($Name))\s") { 'no synopsis' }
+            if (($help.Description.Text -join ' ').Trim().Length -le 40) { 'description of 40 characters or less' }
+            if (-not @($help.Examples.Example).Count -or -not ($help.Examples.Example | Select-Object -First 1).Code) { 'no example' }
+            foreach ($parameter in $parameters) {
+                $entry = $help.Parameters.Parameter | Where-Object Name -EQ $parameter
+                if (-not ($entry.Description.Text -join '').Trim()) { "parameter -$parameter not described" }
+            }
+            if (-not $command.CmdletBinding) { 'not an advanced function' }
+        )
+        $missing -join '; ' | Should -BeNullOrEmpty
     }
 }
 

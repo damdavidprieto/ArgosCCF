@@ -36,13 +36,13 @@ Describe "ArgosCCF: logging end to end" {
     }
 
     Context "Security and audit records" {
-        It "routes Log-Attack to CCF_Security.log" {
-            Log-Attack -Type "SQLInjection" -Source "10.0.0.5" -Payload "id=1' OR '1'='1" -Metadata @{ run = $runId }
+        It "routes security records to CCF_Security.log" {
+            Write-CCFSecurityRecord -Type "SQLInjection" -Source "10.0.0.5" -Payload "id=1' OR '1'='1" -Metadata @{ run = $runId }
             Get-LastLine (Join-Path $logDir "CCF_Security.log") | Should -Match "SQLInjection from 10\.0\.0\.5"
         }
 
-        It "routes Log-Audit to CCF_Audit.log" {
-            Log-Audit -Action "FileDeletion" -User "audit-$runId" -Resource "db.bak"
+        It "routes audit records to CCF_Audit.log" {
+            Write-CCFAuditRecord -Action "FileDeletion" -User "audit-$runId" -Resource "db.bak"
             Get-LastLine (Join-Path $logDir "CCF_Audit.log") | Should -Match "audit-$runId FileDeletion db\.bak"
         }
     }
@@ -70,7 +70,7 @@ Describe "ArgosCCF: logging end to end" {
             (Get-Item $old).LastWriteTime = (Get-Date).AddDays(-10)
             $before = @(Get-ChildItem $logDir -Filter "CCF_Archive_*.zip").Count
 
-            $removed = Remove-OldCCFLogs -DaysToKeep 5 -CompressBeforeDelete
+            $removed = Remove-CCFOldLog -DaysToKeep 5 -CompressBeforeDelete
 
             $removed | Should -Contain (Split-Path $old -Leaf)
             Test-Path $old | Should -BeFalse

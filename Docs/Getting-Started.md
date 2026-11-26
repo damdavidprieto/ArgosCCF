@@ -70,16 +70,26 @@ Protect-CCFLogFile -Path .\transcript.txt                                 # writ
 
 See [Security](Security.md) for the full list of rules and their limits.
 
-## Deprecated areas
+## Tamper-evident logs
 
-Configuration (`Get-CCFConfig`), plugins (`Invoke-CCFPlugin`) and parallel execution
-(`Invoke-CCFParallel`) keep working in 1.x but will be removed in 2.0.0. Their guides are still
-available: [configuration](Configuration-Guide.md) and [plugin development](Plugin-Development.md).
+```powershell
+$key = 'C:\ProgramData\MyApp\chain.key'
+if (-not (Test-Path $key)) { $null = New-CCFChainKey -Path $key }   # once, as the account that writes the log
+Initialize-CCFLogger -Chain Audit -ChainId 'deploy-01' -ChainKeyPath $key -WriterInfo
+Register-CCFChainAnchor -EventLogSource 'MyApp'      # every head also goes to the Application log
+Write-CCFAuditRecord -Action 'Deploy' -User $env:USERNAME -Resource 'web01' -Strict
+
+$auditLog = Join-Path (Get-CCFPath -Target Logs) 'CCF_Audit.log'
+Test-CCFLogChain -Path $auditLog -IncludeRotated -ChainId 'deploy-01' -ChainKeyPath $key -EventLogSource 'MyApp'
+(Test-CCFHealth -VerifyChain).Status                 # the same for every chained log of the session
+Export-CCFEvidence -Path $auditLog -Destination .\audit.zip -EventLogSource 'MyApp' -ChainKeyPath $key
+```
+
+For a scheduled task or a service, add `-NoConsole`: nobody reads that console, and writing to it costs time.
 
 ## Examples
 
-The `Examples/` folder has one runnable script per area: `01-Logging.ps1`, `05-Redaction.ps1`, and the
-deprecated `02-Configuration.ps1`, `03-Plugins.ps1` and `04-Parallel.ps1`.
+The `Examples/` folder has one runnable script per area: `01-Logging.ps1` and `05-Redaction.ps1`.
 
 ## Next
 

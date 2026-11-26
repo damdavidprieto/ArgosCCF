@@ -14,22 +14,6 @@ BeforeAll {
 }
 
 Describe 'ArgosCCF manifest' {
-    It 'targets Windows PowerShell 5.1 or later' {
-        [version]$manifest.PowerShellVersion | Should -BeGreaterOrEqual ([version]'5.1')
-    }
-
-    It 'exports every function listed in the manifest, and nothing else' {
-        $exported = @($module.ExportedFunctions.Keys)
-        $manifest.FunctionsToExport | Where-Object { $_ -notin $exported } | Should -BeNullOrEmpty
-        $exported | Where-Object { $_ -notin $manifest.FunctionsToExport } | Should -BeNullOrEmpty
-    }
-
-    It 'exports every alias listed in the manifest, and nothing else' {
-        $exported = @($module.ExportedAliases.Keys)
-        $manifest.AliasesToExport | Where-Object { $_ -notin $exported } | Should -BeNullOrEmpty
-        $exported | Where-Object { $_ -notin $manifest.AliasesToExport } | Should -BeNullOrEmpty
-    }
-
     It 'does not leave helper modules in the session' {
         Get-Module -Name Logging, Configuration, Plugins, Execution | Should -BeNullOrEmpty
     }

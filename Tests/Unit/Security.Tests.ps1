@@ -60,63 +60,6 @@ Describe 'Log forging' {
     }
 }
 
-Describe 'Configuration names' {
-    BeforeAll {
-        Mock -ModuleName ArgosCCF Write-Host { }
-    }
-
-    It 'Set-CCFUserConfig refuses a name that is a path' {
-        Set-CCFUserConfig -ConfigName '..\..\evil' -ConfigObject ([pscustomobject]@{ a = 1 })
-        Join-Path (Get-CCFPath -Target 'Configs') '..\evil.json' | Should -Not -Exist
-        Join-Path $moduleRoot '..\evil.json' | Should -Not -Exist
-    }
-
-    It 'Get-CCFConfig refuses a preset name that is a path' {
-        Get-CCFConfig -ConfigName 'ccf_core' -ActivePresets '..\..\secrets' -ForceRefresh | Should -BeNullOrEmpty
-    }
-
-    It 'Set-CCFUserConfig supports -WhatIf' {
-        $name = 'whatif_' + [guid]::NewGuid().ToString('N').Substring(0, 6)
-        Set-CCFUserConfig -ConfigName $name -ConfigObject ([pscustomobject]@{ a = 1 }) -WhatIf
-        Join-Path (Get-CCFPath -Target 'Configs') "User/$name.json" | Should -Not -Exist
-    }
-
-    It 'keeps cache entries for different preset lists apart' {
-        $configs = Get-CCFPath -Target 'Configs'
-        $presets = Join-Path $configs 'Presets'
-        New-Item -ItemType Directory -Path $presets -Force | Out-Null
-        @{ ccf_core = @{ Marker = 'preset' } } | ConvertTo-Json -Depth 3 | Set-Content (Join-Path $presets 'qa_marker.json')
-        try {
-            (Get-CCFConfig -ConfigName 'ccf_core' -ActivePresets 'qa_marker' -ForceRefresh).Marker | Should -Be 'preset'
-            (Get-CCFConfig -ConfigName 'ccf_core' -ForceRefresh).Marker | Should -BeNullOrEmpty
-        }
-        finally {
-            Remove-Item (Join-Path $presets 'qa_marker.json')
-            Remove-CCFConfigCache
-        }
-    }
-}
-
-Describe 'Logs folder override' {
-    BeforeEach {
-        Mock -ModuleName ArgosCCF Write-Host { }
-        InModuleScope ArgosCCF { $script:PathCache.Clear() }
-    }
-    AfterEach {
-        InModuleScope ArgosCCF { $script:PathCache.Clear() }
-    }
-
-    It 'ignores Logging.DefaultPath when it climbs out of the data folder with ..' {
-        Mock -ModuleName ArgosCCF Get-CCFConfig { [pscustomobject]@{ Logging = [pscustomobject]@{ DefaultPath = '../../outside-logs' } } }
-        Get-CCFPath -Target 'Logs' | Should -Not -Match 'outside-logs'
-    }
-
-    It 'uses Logging.DefaultPath when it is inside the data folder' {
-        Mock -ModuleName ArgosCCF Get-CCFConfig { [pscustomobject]@{ Logging = [pscustomobject]@{ DefaultPath = 'CustomLogs' } } }
-        Get-CCFPath -Target 'Logs' | Should -Be ([IO.Path]::GetFullPath((Join-Path (Get-CCFPath -Target 'Data') 'CustomLogs')))
-    }
-}
-
 Describe 'Redaction' {
     It 'redacts secrets in nested string values' {
         $result = Protect-CCFSensitiveData -InputData @{ Note = 'login with password=hunter2!' }

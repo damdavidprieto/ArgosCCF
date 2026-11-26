@@ -7,6 +7,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-26
+
+### Added
+- **Signed chains.** `New-CCFChainKey` creates a key protected with Windows DPAPI for the current account, and
+  `Initialize-CCFLogger -ChainKeyPath` signs every chained line with it (HMAC-SHA256, ` #mac=` instead of
+  ` #chain=`). Without the key, whoever can write the file cannot add, change or rewrite lines unnoticed.
+  `Test-CCFLogChain -ChainKeyPath` checks the signatures and reports `KeyedEntries`.
+- `Test-CCFLogChain -EventLogSource` reads the anchors of the file from the event log itself, and
+  `Test-CCFHealth -VerifyChain` checks every chained log of the session (identifier, key and anchors included).
+- `Initialize-CCFLogger -WriterInfo` adds who wrote each line: account, elevation and process ID.
+- `Test-CCFLogChain` returns `ClockWarnings`: lines dated earlier than the line before (`-ClockToleranceSeconds`).
+- `Export-CCFEvidence` packs logs, their rotated copies, their anchors and the result of checking them into a zip,
+  with the SHA-256 of every file, and returns the SHA-256 of the zip.
+- `Initialize-CCFLogger -NoConsole`, for scheduled tasks and services.
+
+### Changed
+- **Faster writes.** Short texts are checked against all the built-in rules in one search, and the rules run only
+  when one can match (the result is the same). Measured on Windows: an entry takes 3-4.5 ms instead of 5.5-6, and a
+  chained audit record 5-8.5 ms instead of 13. The lock of each log file stays open, and the last hash is read from the last
+  4 KB of the file first.
+- **Fewer false positives, measured on the evidence of a hardening tool** (163 files, 69,000 lines: 683 values
+  redacted without being secrets, now 2). Keys that describe a secret (`MinimumPasswordLength`, `PasswordLastSet`,
+  `credential.helper`) and unquoted values that cannot be one (true, false, null, `{`, and code such as `$x = $y`)
+  are kept; "signature" names a secret only at the end of a key (`x-amz-signature`, not
+  `AntivirusSignatureVersion`); Windows session numbers (`SessionId : 1`) are kept. `Test-CCFEntropyContent`
+  leaves alone command names, Store app packages and words joined to hexadecimal parts.
+- `-EncodedCommand` is also recognized in command lines inside JSON (`pwsh.exe\" -EncodedCommand ...`).
+
+### Fixed
+- An unchained line that claims earlier lines were archived no longer excuses deleted lines in
+  `Test-CCFLogChain -IncludeRotated`.
+- `Remove-CCFOldLog` keeps the copies of a signed log when the session does not have its key, instead of
+  recording their deletion without a signature.
+
+## [2.0.0] - 2026-11-26
+
+ArgosCCF is now only secure logging and redaction.
+
+### Removed
+- **Configuration**: `Get-CCFConfig`, `Set-CCFUserConfig`, `Merge-CCFConfig`, `Remove-CCFConfigCache`,
+  `Test-CCFConfigSchema`, the `Configs` folder and the `Logging.DefaultPath` setting. Use `Initialize-CCFLogger -Path`
+  to choose the logs folder.
+- **Plugins**: `Get-CCFPlugin`, `Invoke-CCFPlugin`, `Confirm-CCFPluginSignature` and the `Plugins` folder.
+- **Parallel execution**: `Invoke-CCFParallel`. Use `ForEach-Object -Parallel` or ThreadJob.
+- `Submit-CCFHeartbeat`, which nothing read.
+- **Aliases**: `Log-Info`, `Log-Success`, `Log-Warn`, `Log-Error`, `Log-Critical`, `Log-Debug`, `Log-Header`,
+  `Log-Attack`, `Log-Audit`, `Init-CCFLogger`, `Catch-CCFError`, `Redact-CCFSensitiveData`, `Test-CCFHighEntropy`,
+  `Remove-OldCCFLogs`, `Clear-CCFConfigCache`, `Test-CCFPluginSignature`, `Get-CCFPlugins`. Use the full command names.
+- `Get-CCFPath` targets `Configs`, `Plugins`, `Tests` and `UserConfigs`.
+
+### Added
+- **`Register-CCFChainAnchor -EventLogSource`** writes every chain head to the Windows Application log, and
+  **`Get-CCFChainAnchor`** reads them back for `Test-CCFLogChain -ExpectedLastHash`.
+- `Test-CCFLogChain` returns `ExternalHashes`: how many hashes from outside the file were checked.
+
+### Fixed
+- **`Remove-CCFOldLog` no longer breaks a chained log.** It deleted any old file, including the current one or a copy
+  in the middle of the chain. Now it deletes only the oldest rotated copies of a chained log, oldest first, and records
+  them in the current file as rotation does.
+- **A program running as administrator and the same program without elevation can write the same log files.** On
+  Windows the write lock is created so that any account can open it, and a lock that cannot be opened no longer makes
+  the entry fail: it is written without it.
+
+## [1.7.0] - 2026-11-26
+
+### Added
+- **`Register-CCFChainAnchor`**: runs a script block with every new chain head (path, category, hash, identifier, time),
+  to keep it where the log's writer cannot change it. Failures never stop logging; `Test-CCFHealth` reports them.
+- **`-Strict`** on `Initialize-CCFLogger`, `Write-CCFLog`, `Write-CCFAuditRecord` and `Write-CCFSecurityRecord`: an entry
+  that cannot be written throws an error instead of a warning.
+- **Copies without the deprecated components**: the module loads when `Core/Configuration.ps1`, `Plugins.ps1` and
+  `Execution.ps1` are left out, and exports the rest. `Test-CCFHealth` only checks the components present.
+- **Secrets in sentences**: "the password is X" and "la contrasena es X" when X has a digit or a symbol, or is quoted.
+- `Test-CCFLogChain -ExpectedLastHash` also takes objects with `Hash` and `Time`; the result has `ArchivedUntil` and
+  `MissingHashes`.
+
+### Fixed
+- **Rotation no longer breaks a chained log.** When the oldest copy was deleted, `Test-CCFLogChain -IncludeRotated`
+  reported the log as changed, and saved hashes of the deleted copy as missing. The new file now starts with a chained
+  line that records the last hash and time of the deleted copy; the check starts from it, and saved hashes older than
+  it are no longer required (with their time).
+- `clave` only counts as a secret key in text when its value has a digit or a symbol, or is quoted.
+
+## [1.6.0] - 2026-11-25
+
+### Added
+- **Secrets in command lines**: `-Password x`, `--token x`, `/pass:x` and similar parameters in any program, and the
+  options of known programs: `net user`, `net use`, `rasdial`, `schtasks /rp` and other Windows tools, PsTools, `sqlcmd`,
+  `mysql`, `curl -u`, container logins, `sshpass`, 7-Zip, RAR, `zip`, `openssl`, `certutil` and `netsh`. Short options
+  such as `-p` are only read that way for programs where they carry a password.
+- **`ConvertTo-SecureString` literals** and **XML elements** whose name is a secret.
+- **Spanish keys**: `contrasena` (with or without the tilde), `clave` and `credencial`.
+- **`-EncodedCommand` fingerprints**: the command becomes `[ENCODED 1a2b3c4d 120 chars]`, so a repeated command can be
+  recognized without keeping it.
+- **`Initialize-CCFLogger -ChainId`**, `Test-CCFLogChain -ChainId` and `Get-CCFLogChainHead -AsObject`: chained lines can
+  carry who writes them, to tell another copy of a program from deleted lines.
+
+### Fixed
+- `secretary=...` and test results such as `pass=3 fail=0` are no longer redacted.
+- The command table in the README lists the chain commands.
+
 ## [1.5.0] - 2026-11-22
 
 ### Added

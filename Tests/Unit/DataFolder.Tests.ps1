@@ -1,4 +1,4 @@
-# Logs and user settings live in the per-user data folder, never in the module folder.
+# Logs live in the per-user data folder, never in the module folder.
 
 BeforeAll {
     $script:previousDataPath = $env:CCF_DATA_PATH
@@ -17,10 +17,9 @@ AfterAll {
 }
 
 Describe 'Data folder' {
-    It 'uses $env:CCF_DATA_PATH for the data, logs and user settings folders' {
+    It 'uses $env:CCF_DATA_PATH for the data and logs folders' {
         Get-CCFPath -Target 'Data' | Should -Be ([System.IO.Path]::GetFullPath($dataRoot))
         Get-CCFPath -Target 'Logs' | Should -Be (Join-Path $dataRoot 'Logs')
-        Get-CCFPath -Target 'UserConfigs' | Should -Be (Join-Path (Join-Path $dataRoot 'Configs') 'User')
     }
 
     It 'defaults to ArgosCCF under the user data folder when $env:CCF_DATA_PATH is not set' {
@@ -70,36 +69,5 @@ Describe 'Initialize-CCFLogger -Path' {
         $file = Join-Path $TestDrive 'not-a-folder.txt'
         Set-Content -Path $file -Value 'x'
         { Initialize-CCFLogger -Path (Join-Path $file 'logs') } | Should -Throw '*cannot be created or written*'
-    }
-}
-
-Describe 'User settings' {
-    It 'Set-CCFUserConfig saves to the data folder and Get-CCFConfig reads it back' {
-        $name = 'datafolder_' + [guid]::NewGuid().ToString('N').Substring(0, 6)
-        Set-CCFUserConfig -ConfigName $name -ConfigObject ([pscustomobject]@{ Server = 'prod01' }) -Confirm:$false
-        Join-Path (Get-CCFPath -Target 'UserConfigs') "$name.json" | Should -Exist
-        Join-Path $moduleRoot "Configs/User/$name.json" | Should -Not -Exist
-        (Get-CCFConfig -ConfigName $name -ForceRefresh).Server | Should -Be 'prod01'
-    }
-
-    It 'still reads settings saved next to the module by earlier versions, with the data folder winning' {
-        $name = 'legacy_' + [guid]::NewGuid().ToString('N').Substring(0, 6)
-        $legacyDir = Join-Path $moduleRoot 'Configs/User'
-        $createdDir = -not (Test-Path $legacyDir)
-        New-Item -ItemType Directory -Path $legacyDir -Force | Out-Null
-        $legacy = Join-Path $legacyDir "$name.json"
-        try {
-            '{ "Server": "old01", "Port": 1433 }' | Set-Content -Path $legacy
-            (Get-CCFConfig -ConfigName $name -ForceRefresh).Server | Should -Be 'old01'
-
-            Set-CCFUserConfig -ConfigName $name -ConfigObject ([pscustomobject]@{ Server = 'new01' }) -Confirm:$false
-            $config = Get-CCFConfig -ConfigName $name -ForceRefresh
-            $config.Server | Should -Be 'new01'
-            $config.Port | Should -Be 1433
-        }
-        finally {
-            Remove-Item -LiteralPath $legacy -Force -ErrorAction SilentlyContinue
-            if ($createdDir) { Remove-Item -LiteralPath $legacyDir -Force -ErrorAction SilentlyContinue }
-        }
     }
 }

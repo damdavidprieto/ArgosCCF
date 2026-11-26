@@ -19,9 +19,11 @@ provider, the SIEM provider or a file. Text is checked in this order
 | 5. Bearer tokens | `Bearer <token>` anywhere | `Bearer [REDACTED]` |
 | 6. Connection strings | `Password`, `Pwd`, `AccountKey` and shared access keys, up to the next `;` (spaces included) | `User Id=sa;Password=[REDACTED];` |
 | 7. Known token formats | JSON web tokens; GitHub (`ghp_`, `github_pat_`...), AWS access key IDs (`AKIA`...), Slack (`xoxb-`...), Stripe (`sk_live_`...), Google (`AIza`...), npm (`npm_`) and `sk-` keys | `token [REDACTED]` |
+| 7b. XML and command lines | Elements such as `<password>`; `-Password x`, `--token x`, `/pass:x` in any program; the password options of `net`, `rasdial`, `schtasks` and other Windows tools, PsTools, `sqlcmd`, `mysql`, `curl -u`, container logins, `sshpass`, 7-Zip, RAR, `zip`, `openssl`, `certutil` and `netsh`; literals of `ConvertTo-SecureString` | `net user bob [REDACTED] /add` |
+| 7c. Encoded commands | PowerShell `-EncodedCommand`: 32 bits of its SHA-256 and its length. The same command gives the same fingerprint; someone who already suspects the exact content could check the guess | `-EncodedCommand [ENCODED 1a2b3c4d 120 chars]` |
 | 8. Your patterns | Regular expressions added with `Register-CCFRedactionPattern` | `[REDACTED]` |
-| 9. Key/value pairs | `key=value`, `key: value`, `"key": "value"` and quoted values with spaces, when the key names a secret: password, passwd, passphrase, secret, token, api key, access key, private key, account key, shared key, credential, cookie, session id, signature, connection string (also inside longer keys such as `db_password` or `ClientSecret`), and the exact keys pwd, pass, pw, pin, sig, sas, pat | `{"password":"[REDACTED]"}` |
-| 10. Random-looking words | 20 or more characters mixing upper case, lower case and digits (see `Test-CCFEntropyContent`). GUIDs, SIDs, hashes, paths, URLs and host names are left alone | `key [REDACTED-ENTROPY]` |
+| 9. Key/value pairs | `key=value`, `key: value`, `"key": "value"` and quoted values with spaces, when the key names a secret: password, passwd, passphrase, contrasena (with or without the tilde), secret, token, api key, access key, private key, account key, shared key, credential, cookie, session id, signature, connection string (also inside longer keys such as `db_password` or `ClientSecret`), keys that end in signature, and the exact keys pwd, pass, pw, pin, sig, sas, pat, clave. Keys that describe a secret (`MinimumPasswordLength`, `PasswordLastSet`, `credential.helper`) and unquoted values that cannot be one (true, false, null, `{`, and code such as `$x = $y` or `$x = Read-Host`) are kept | `{"password":"[REDACTED]"}` |
+| 10. Random-looking words | 20 or more characters mixing upper case, lower case and digits (see `Test-CCFEntropyContent`). GUIDs, SIDs, hashes, paths, URLs, host names, command names, Store app packages and words joined to hexadecimal parts are left alone | `key [REDACTED-ENTROPY]` |
 
 Hashtables, objects and arrays are copied and checked recursively: values whose key names a secret
 become `[REDACTED]` (true/false values are kept), `SecureString` values become `[REDACTED]`, and
@@ -75,6 +77,26 @@ detected. Do not log secrets on purpose, and register the ones your script handl
 
 ## Log integrity
 
+- **Tamper-evident logs.** `Initialize-CCFLogger -Chain` hashes every line with the one before it.
+  `Register-CCFChainAnchor` passes each new head to your code, to keep it out of the writer's reach, and
+  `Test-CCFLogChain` checks the chain, also across rotated copies: when rotation deletes the oldest copy, the next
+  file records where it ended (also when `Remove-CCFOldLog` deletes it), so retention is not mistaken for
+  tampering. `-Strict` makes an entry that cannot be written throw an error.
+  The chain alone proves little: whoever can write the file can rewrite it and compute new hashes. Two things
+  close that gap:
+  - **A key** (`New-CCFChainKey`, then `Initialize-CCFLogger -ChainKeyPath`): every line carries an HMAC with a key
+    that Windows DPAPI protects for the account that writes the log, so another account that can write the file
+    still cannot write valid lines. A process running as that same account can use the key.
+  - **Anchors** kept where the writer cannot change them (`Register-CCFChainAnchor -EventLogSource`), which show
+    lines deleted from the end.
+
+  `Test-CCFLogChain -EventLogSource ... -ChainKeyPath ...` checks both in one step (it reports `ExternalHashes` and
+  `KeyedEntries`), `Test-CCFHealth -VerifyChain` does it for the logs of the session, and `Export-CCFEvidence` packs
+  the logs, their anchors and the result into a zip whose SHA-256 you can keep elsewhere. `Test-CCFLogChain` also
+  reports `ClockWarnings`, lines dated earlier than the one before, which is how a clock set back to hide when
+  something happened shows up.
+- **Who wrote each line.** `Initialize-CCFLogger -WriterInfo` adds the account, whether it was elevated and the
+  process ID to every line; in a chained log they are part of what is hashed.
 - **One entry, one line.** Line breaks in messages are written as the text `\n`, and other control
   characters are removed, so a message cannot add fake entries to a log file.
 - **No terminal escape sequences.** ANSI escape sequences are removed, so a message cannot recolor
@@ -90,11 +112,13 @@ detected. Do not log secrets on purpose, and register the ones your script handl
   the process is killed or crashes are lost, so leave it off where every entry must survive a crash,
   and check `Get-CCFLogWriter` (or `Test-CCFHealth`) for writes that failed.
 - **Log files stay in the Logs folder.** `-Category` and `Initialize-CCFLogger -FileName` accept only
-  letters, digits, `.`, `-` and `_`. The `Logging.DefaultPath` override in `ccf_core` is used only
-  when, after resolving `..`, it is inside the data folder, so a configuration file cannot send logs
-  anywhere else. Only the script itself can choose another folder, with `Initialize-CCFLogger -Path`.
-- **Logs and settings are kept per user, outside the module.** ArgosCCF never writes into the folder it
-  is installed in. Logs and user settings go to the data folder: `$env:CCF_DATA_PATH`, or `ArgosCCF`
+  letters, digits, `.`, `-` and `_`. Only the script itself can choose another folder, with
+  `Initialize-CCFLogger -Path`.
+- **Every account can take the write lock.** On Windows the lock of a log file is created so that any account can
+  open it, so a program running as administrator and the same program without elevation can write the same files.
+  If a lock cannot be opened, the entry is written without it rather than lost.
+- **Logs are kept per user, outside the module.** ArgosCCF never writes into the folder it
+  is installed in. Logs go to the data folder: `$env:CCF_DATA_PATH`, or `ArgosCCF`
   under `%LOCALAPPDATA%` (`$XDG_DATA_HOME` or `~/.local/share` on Linux and macOS). Updating or
   removing the module keeps them, and an all-users install works without administrator rights.
 
@@ -113,62 +137,14 @@ each line is a JSON object:
 Get-Content (Join-Path (Get-CCFPath -Target Logs) 'CCF_Security.log')
 ```
 
-## Configuration files
-
-Configuration and preset names become file names, so `Get-CCFConfig`, `Set-CCFUserConfig` and
-`-ActivePresets` accept only plain names (letters, digits, `.`, `-`, `_`). Anything else is refused
-and logged as a security block. Files are read and written as UTF-8.
-
-Do not store secrets in configuration files. Read them at run time instead, for example from an
-environment variable or with the SecretManagement module (`Get-Secret`).
-
-## Plugins (deprecated)
-
-Plugins will be removed in 2.0.0, which keeps only logging and redaction. A plugin is PowerShell code that runs with the permissions of the script that calls
-`Invoke-CCFPlugin`. Treat installing a plugin like installing any other script.
-
-1. **Location.** Only `.ps1` files inside the module's `Plugins` folder run. The path is resolved
-   first, so `Plugins\..\other.ps1` and sibling folders such as `PluginsX` are refused.
-2. **Signatures.** With `Security.RequireSignedPlugins` set to `true`, a plugin runs only if it has a
-   valid Authenticode signature from a trusted certificate. The signature is checked on the same bytes
-   that are then run, so the file cannot be replaced between the check and the execution. On Linux and
-   macOS, where Authenticode is not available, every plugin counts as unsigned (fail closed).
-
-   ```powershell
-   Set-CCFUserConfig -ConfigName ccf_core -ConfigObject ([pscustomobject]@{ Security = @{ RequireSignedPlugins = $true } })
-   ```
-
-   To sign a plugin:
-
-   ```powershell
-   $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
-   Set-AuthenticodeSignature -FilePath .\Plugins\MyPlugin\MyPlugin.ps1 -Certificate $cert
-   ```
-
-3. **Hardened mode.** With `-HardenedMode`, the plugin and its `Before-Execute`/`After-Execute` hooks
-   run in a new restricted runspace in Constrained Language Mode: no cmdlets or providers are loaded
-   and calls to non-core .NET methods, `Add-Type` and COM are blocked. Hooks cannot call ArgosCCF in
-   this mode.
-
-> **Limits.** Microsoft does not treat Constrained Language Mode as a security boundary on its own; it
-> is enforced as one only together with WDAC or AppLocker. Hardened mode reduces what a plugin can do,
-> but it does not make untrusted code safe. For plugins you did not write, require signatures and keep
-> the `Plugins` folder writable only by administrators.
-
-## Parallel execution (deprecated)
-
-`Invoke-CCFParallel` will be removed in 2.0.0; use `ForEach-Object -Parallel` or ThreadJob. It runs the script block you pass, with your permissions, in separate runspaces.
-Build it from your own code, never from untrusted input.
-
 ## Checklist
 
-- [ ] Enable `RequireSignedPlugins` where plugins come from other people.
-- [ ] Keep the module folder, and especially `Plugins` and `Configs`, writable only by administrators.
+- [ ] Keep the module folder writable only by administrators.
 - [ ] Register the secrets your script reads with `Register-CCFSecret` (or `-Credential`), right after
       reading them.
 - [ ] Add `Register-CCFRedactionPattern` rules for secret formats specific to your organization.
 - [ ] Run `Protect-CCFLogFile` on transcripts and on logs written by other tools before sharing them.
-- [ ] Keep secrets out of configuration files and out of log messages.
+- [ ] Keep secrets out of log messages.
 - [ ] Use `Write-CCFSecurityRecord` and `Write-CCFAuditRecord` for events that must be traceable, and
       review `CCF_Security.log` and `CCF_Audit.log`.
 - [ ] Keep ArgosCCF up to date: `Update-Module ArgosCCF`.

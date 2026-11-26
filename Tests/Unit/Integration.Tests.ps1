@@ -1,33 +1,13 @@
-Describe "ArgosCCF: health and records" {
-    BeforeAll {
-        $manifest = Join-Path $PSScriptRoot "../../ArgosCCF.psd1"
-        Import-Module $manifest -Force
-    }
+Describe 'ArgosCCF 2.0' {
+    BeforeAll { $module = Import-Module (Join-Path $PSScriptRoot '../../ArgosCCF.psd1') -Force -PassThru }
 
-    Context "Health" {
-        It "returns a valid health report (Test-CCFHealth)" {
-            $health = Test-CCFHealth
-            $health.Status | Should -Match "OK|DEGRADED|CRITICAL"
+    It 'no longer has the configuration, plugin and parallel commands, nor the old aliases' {
+        # Only what this copy exports: Get-Command would load an older ArgosCCF installed on the computer.
+        $exported = @($module.ExportedCommands.Keys)
+        foreach ($name in 'Get-CCFConfig', 'Set-CCFUserConfig', 'Invoke-CCFPlugin', 'Invoke-CCFParallel', 'Submit-CCFHeartbeat', 'Log-Info', 'Init-CCFLogger', 'Redact-CCFSensitiveData') {
+            $exported | Should -Not -Contain $name
         }
-    }
-
-    Context "Records" {
-        It "records security events (Write-CCFSecurityRecord)" {
-            { Write-CCFSecurityRecord -Type "Test" -Source "Unit" -Payload "None" } | Should -Not -Throw
-        }
-
-        It "records audit events (Write-CCFAuditRecord)" {
-            { Write-CCFAuditRecord -Action "Test" -User "Bot" } | Should -Not -Throw
-        }
-    }
-
-    Context "Aliases for earlier names" {
-        It "alias Catch-CCFError points to Write-CCFErrorRecord" {
-            (Get-Alias Catch-CCFError).Definition | Should -Be "Write-CCFErrorRecord"
-        }
-
-        It "alias Init-CCFLogger points to Initialize-CCFLogger" {
-            (Get-Alias Init-CCFLogger).Definition | Should -Be "Initialize-CCFLogger"
-        }
+        $module.ExportedAliases.Count | Should -Be 0
+        (Test-CCFHealth).Status | Should -Be 'OK'
     }
 }
