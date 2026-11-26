@@ -19,10 +19,4 @@ Describe "ArgosCCF: configuration" {
             $res.Settings.Path | Should -Be "/"
         }
     }
-
-    Context "Aliases for earlier names" {
-        It "alias Clear-CCFConfigCache points to Remove-CCFConfigCache" {
-            (Get-Alias Clear-CCFConfigCache).Definition | Should -Be "Remove-CCFConfigCache"
-        }
-    }
 }

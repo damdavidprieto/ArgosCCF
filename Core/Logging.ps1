@@ -220,7 +220,8 @@ function Split-CCFChainLine {
 
 # When rotation deletes the oldest copy of a chained log, the new file starts with a line that records the
 # last hash and the time of the last line of the deleted copy. It is chained like any other line.
-$script:CCFArchiveRegex = [regex]'\[CHAIN\] Archived (?<file>\S+): (?<lines>\d+) lines up to (?<time>\S+), last hash (?<hash>[0-9a-f]{64})'
+# Only lines of the Chain category count: the same words inside the message of another entry are ignored.
+$script:CCFArchiveRegex = [regex]'(?m)^(?:\[[0-9T:.Z-]+\] \[INFO\] \[Chain\] |\{"Timestamp":"[0-9T:.Z-]+","Level":"INFO","Category":"Chain","Message":")\[CHAIN\] Archived (?<file>\S+): (?<lines>\d+) lines up to (?<time>\S+), last hash (?<hash>[0-9a-f]{64})'
 
 function Get-CCFLineTime {
     <#
@@ -497,9 +498,14 @@ function Test-CCFLogChain {
     }
     $missing = @(foreach ($expected in @($ExpectedLastHash | Where-Object { $_ })) {
             $hash = if ($expected -is [string]) { $expected } else { "$($expected.Hash)" }
-            if ($seen.ContainsKey($hash)) { continue }
+            # The last hash of a deleted copy is recorded in its archive line: it was there.
+            if ($seen.ContainsKey($hash) -or $starts.ContainsKey($hash)) { continue }
             # Saved before the end of a copy that rotation deleted: it went with that copy.
-            if ($expected -isnot [string] -and $null -ne $expected.Time -and $null -ne $result.ArchivedUntil -and ([datetime]$expected.Time).ToUniversalTime() -le $result.ArchivedUntil) { continue }
+            # Line times have milliseconds: a hash saved within the same millisecond is compared at that precision.
+            if ($expected -isnot [string] -and $null -ne $expected.Time -and $null -ne $result.ArchivedUntil) {
+                $savedAt = ([datetime]$expected.Time).ToUniversalTime()
+                if ($savedAt.AddTicks(-($savedAt.Ticks % [timespan]::TicksPerMillisecond)) -le $result.ArchivedUntil) { continue }
+            }
             $hash
         })
     $result.MissingHashes = $missing

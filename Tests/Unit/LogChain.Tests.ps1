@@ -183,45 +183,69 @@ Describe 'Chain identifier' {
 }
 
 Describe 'Rotation of a chained log' {
+    BeforeAll {
+        # 1 MB per file and 2 copies: 16 lines of 300 KB delete the oldest copy twice. Built once, copied for each test.
+        $script:template = Join-Path $TestDrive 'rotated'
+        $null = New-Item -ItemType Directory -Path $template
+        $script:saved = @(InModuleScope ArgosCCF -Parameters @{ Log = (Join-Path $template 'CCF_Audit.log') } {
+                param($Log)
+                $pad = 'x' * 300000
+                foreach ($i in 1..16) {
+                    $line = '[{0}] [INFO] [Audit] [AUDIT] Change{1} {2}' -f [datetime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ'), $i, $pad
+                    $hash = Add-CCFLogText -Path $Log -Text ($line + [Environment]::NewLine) -MaxMB 1 -MaxRolling 2 -Chain
+                    [pscustomobject]@{ Hash = $hash; Time = [datetime]::UtcNow }
+                }
+            })
+    }
+
     BeforeEach {
-        $script:folder = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
-        Initialize-CCFLogger -Path $folder -Chain Audit -MaxMB 1 -MaxRolling 2
+        $folder = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        Copy-Item -Path $template -Destination $folder -Recurse
         $script:log = Join-Path $folder 'CCF_Audit.log'
-        $script:pad = 'x' * 900
     }
 
     It 'keeps the chain valid after the oldest copy is deleted, and drops only the hashes saved before it' {
-        $saved = @()
-        for ($i = 1; $i -le 3600; $i++) {
-            Write-CCFAuditRecord -Action "Change$i" -User 'tester' -Resource "item $pad"
-            if ($i % 300 -eq 0) { $saved += [pscustomobject]@{ Hash = (Get-CCFLogChainHead -Path $log); Time = [datetime]::UtcNow } }
-        }
         Test-Path "$log.3" | Should -BeFalse
         @(Select-String -Path "$log*" -Pattern '\[CHAIN\] Archived').Count | Should -BeGreaterThan 0
         $r = Test-CCFLogChain -Path $log -IncludeRotated -ExpectedLastHash $saved
         $r.Valid | Should -BeTrue
         $r.ArchivedUntil | Should -Not -BeNullOrEmpty
         $r.MissingHashes.Count | Should -Be 0
-        # Without the time, a hash of a deleted copy is still reported.
+        # The last hash of the newest deleted copy is accepted even without its time: the archive line records it.
+        $archived = [regex]::Match((Get-Content $log -Raw), 'last hash ([0-9a-f]{64})').Groups[1].Value
+        $archived | Should -Not -BeNullOrEmpty
+        (Test-CCFLogChain -Path $log -IncludeRotated -ExpectedLastHash $archived).Valid | Should -BeTrue
+        # A hash saved within the millisecond of the last deleted line goes with that copy; a millisecond later, not.
+        $same = [pscustomobject]@{ Hash = ('ab' * 32); Time = $r.ArchivedUntil.AddTicks(5000) }
+        (Test-CCFLogChain -Path $log -IncludeRotated -ExpectedLastHash $same).Valid | Should -BeTrue
+        $later = [pscustomobject]@{ Hash = ('ab' * 32); Time = $r.ArchivedUntil.AddMilliseconds(1) }
+        (Test-CCFLogChain -Path $log -IncludeRotated -ExpectedLastHash $later).Valid | Should -BeFalse
+        # Without the time, any other hash of a deleted copy is still reported.
         (Test-CCFLogChain -Path $log -IncludeRotated -ExpectedLastHash $saved[0].Hash).Valid | Should -BeFalse
-        # The last hash, saved after the deletion, must be there.
+        # A hash saved after the deletion must be there.
         $gone = [pscustomobject]@{ Hash = ('ab' * 32); Time = [datetime]::UtcNow }
         (Test-CCFLogChain -Path $log -IncludeRotated -ExpectedLastHash $gone).Valid | Should -BeFalse
     }
 
     It 'still finds a changed line in a rotated copy' {
-        for ($i = 1; $i -le 2500; $i++) { Write-CCFAuditRecord -Action "Change$i" -User 'tester' -Resource "item $pad" }
         $lines = @(Get-Content "$log.1")
-        $lines[5] = $lines[5].Replace('Change', 'Cambio')
+        $lines[1] = $lines[1].Replace('Change', 'Cambio')
         Set-Content -Path "$log.1" -Value $lines
         (Test-CCFLogChain -Path $log -IncludeRotated).Valid | Should -BeFalse
     }
 
+    It 'ignores archive words inside the message of another entry' {
+        $fake = 'cd' * 32
+        Initialize-CCFLogger -Path (Split-Path $log) -Chain Audit
+        Write-CCFAuditRecord -Action "[CHAIN] Archived x: 1 lines up to 2099-01-01T00:00:00.000Z, last hash $fake" -User 'u'
+        $r = Test-CCFLogChain -Path $log -IncludeRotated -ExpectedLastHash $fake
+        $r.Valid | Should -BeFalse
+        $r.ArchivedUntil | Should -BeLessThan ([datetime]'2090-01-01')
+    }
+
     It 'does not accept an archive line that does not match the copy left' {
-        for ($i = 1; $i -le 3600; $i++) { Write-CCFAuditRecord -Action "Change$i" -User 'tester' -Resource "item $pad" }
-        $oldest = @(Get-ChildItem "$log.*" | Sort-Object Name -Descending)[0].FullName
-        $lines = @(Get-Content $oldest)
-        Set-Content -Path $oldest -Value $lines[1..($lines.Count - 1)]
+        $lines = @(Get-Content "$log.2")
+        Set-Content -Path "$log.2" -Value $lines[1..($lines.Count - 1)]
         (Test-CCFLogChain -Path $log -IncludeRotated).Valid | Should -BeFalse
     }
 }

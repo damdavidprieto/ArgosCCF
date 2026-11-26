@@ -247,6 +247,17 @@ Describe 'Data objects' {
         @('pwd=abcd', 'fine') | Protect-CCFSensitiveData | Should -Be @('pwd=[REDACTED]', 'fine')
     }
 
+    It 'redacts the properties of a custom object' {
+        $result = Protect-CCFSensitiveData ([pscustomobject]@{ User = 'bob'; Secret = 'A1b2C3d4_E5f6G7h8' })
+        $result.User | Should -Be 'bob'
+        $result.Secret | Should -Be '[REDACTED]'
+    }
+
+    It 'stops at the depth limit' {
+        $result = Protect-CCFSensitiveData @{ n = @{ n = @{ n = @{ n = @{ n = @{ n = 'Limit' } } } } } }
+        $result.n.n.n.n.n.n | Should -Be '[DEPTH-LIMIT]'
+    }
+
     It 'does not modify the input' {
         $data = @{ Password = 'abcd' }
         $null = Protect-CCFSensitiveData $data
