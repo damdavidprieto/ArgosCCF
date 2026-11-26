@@ -348,7 +348,7 @@ Describe 'Remove-CCFOldLog on a chained log' {
 Describe 'Anchors in the event log' {
     It 'writes and reads back an anchor message' {
         $back = InModuleScope ArgosCCF {
-            $a = [pscustomobject]@{ Path = 'C:\logs\CCF_Audit.log'; Category = 'Audit'; Hash = ('ab' * 32); ChainId = 'copy-a'; Time = [datetime]::UtcNow }
+            $a = [pscustomobject]@{ Path = [System.IO.Path]::Combine('logs', 'CCF_Audit.log'); Category = 'Audit'; Hash = ('ab' * 32); ChainId = 'copy-a'; Time = [datetime]::UtcNow }
             $text = ConvertTo-CCFAnchorMessage -Anchor $a
             [pscustomobject]@{ Text = $text; Back = ConvertFrom-CCFAnchorMessage -Message $text -Time ([datetime]'2026-11-26T10:00:00Z'); Other = ConvertFrom-CCFAnchorMessage -Message 'something else' -Time (Get-Date) }
         }
