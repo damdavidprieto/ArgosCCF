@@ -990,34 +990,44 @@ function Protect-CCFLogFile {
         if (-not $PSCmdlet.ShouldProcess($target, "Write a redacted copy of $source")) { return }
 
         $temp = "$target.$([guid]::NewGuid().ToString('N')).tmp"
-        $count = 0
-        $reader = [System.IO.StreamReader]::new($source, [System.Text.UTF8Encoding]::new($false), $true)
-        $writer = [System.IO.StreamWriter]::new($temp, $false, [System.Text.UTF8Encoding]::new($true))
-        try {
-            $inKey = $false
-            while ($null -ne ($line = $reader.ReadLine())) {
-                if ($inKey) {
-                    if ($line -match '-----END [A-Z0-9 ]*PRIVATE KEY-----') { $inKey = $false }
-                    continue
-                }
-                if ($line -match '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' -and $line -notmatch '-----END [A-Z0-9 ]*PRIVATE KEY-----') {
-                    $prefix = $line.Substring(0, $line.IndexOf('-----BEGIN'))
-                    $writer.WriteLine((Invoke-CCFTextRedaction -Text $prefix) + '[REDACTED-PRIVATE-KEY]')
-                    $count++
-                    $inKey = $true
-                    continue
-                }
-                $clean = Invoke-CCFTextRedaction -Text $line
-                if ($clean -cne $line) { $count += [math]::Max(1, ([regex]::Matches($clean, '\[REDACTED')).Count - ([regex]::Matches($line, '\[REDACTED')).Count) }
-                $writer.WriteLine($clean)
-            }
-        }
-        finally {
-            $reader.Dispose()
-            $writer.Dispose()
-        }
+        $count = Write-CCFRedactedFile -Source $source -Temp $temp
 
         Move-Item -LiteralPath $temp -Destination $target -Force
         [pscustomobject]@{ Source = $source; Destination = $target; Redactions = $count; InPlace = $inPlace }
     }
+}
+
+# Copies the file to Temp line by line: secrets are replaced by Invoke-CCFTextRedaction and private key blocks are dropped.
+# Returns the number of redactions made.
+function Write-CCFRedactedFile {
+    [CmdletBinding()]
+    param([string]$Source, [string]$Temp)
+
+    $count = 0
+    $reader = [System.IO.StreamReader]::new($Source, [System.Text.UTF8Encoding]::new($false), $true)
+    $writer = [System.IO.StreamWriter]::new($Temp, $false, [System.Text.UTF8Encoding]::new($true))
+    try {
+        $inKey = $false
+        while ($null -ne ($line = $reader.ReadLine())) {
+            if ($inKey) {
+                if ($line -match '-----END [A-Z0-9 ]*PRIVATE KEY-----') { $inKey = $false }
+                continue
+            }
+            if ($line -match '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' -and $line -notmatch '-----END [A-Z0-9 ]*PRIVATE KEY-----') {
+                $prefix = $line.Substring(0, $line.IndexOf('-----BEGIN'))
+                $writer.WriteLine((Invoke-CCFTextRedaction -Text $prefix) + '[REDACTED-PRIVATE-KEY]')
+                $count++
+                $inKey = $true
+                continue
+            }
+            $clean = Invoke-CCFTextRedaction -Text $line
+            if ($clean -cne $line) { $count += [math]::Max(1, ([regex]::Matches($clean, '\[REDACTED')).Count - ([regex]::Matches($line, '\[REDACTED')).Count) }
+            $writer.WriteLine($clean)
+        }
+    }
+    finally {
+        $reader.Dispose()
+        $writer.Dispose()
+    }
+    return $count
 }
