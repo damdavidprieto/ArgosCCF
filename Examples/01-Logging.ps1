@@ -1,4 +1,4 @@
-# Logging: levels, structured data, secret redaction, security and audit records.
+﻿# Logging: levels, structured data, secret redaction, security and audit records.
 # Run from the repository: .\Examples\01-Logging.ps1
 
 Import-Module (Join-Path $PSScriptRoot '..\ArgosCCF.psd1') -Force

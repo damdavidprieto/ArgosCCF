@@ -1,4 +1,4 @@
-# Tamper-evident logs: Initialize-CCFLogger -Chain, Test-CCFLogChain and Get-CCFLogChainHead.
+﻿# Tamper-evident logs: Initialize-CCFLogger -Chain, Test-CCFLogChain and Get-CCFLogChainHead.
 
 BeforeAll {
     $script:manifest = Join-Path $PSScriptRoot '../../ArgosCCF.psd1'
@@ -15,17 +15,15 @@ BeforeAll {
 
 AfterAll {
     InModuleScope ArgosCCF {
-        $script:LogsPathOverride = $null
-        $script:CurrentLogFile = $null
-        $script:CCFChainCategories = @()
-        $script:CCFChainId = ''
-        $script:CCFStrict = $false
-        $script:CCFChainAnchor = $null
-        $script:CCFChainAnchorSeconds = 0
-        $script:CCFChainAnchorFailures = 0
-        $script:JsonOutput = $false
-        $script:MaxLogSizeMB = 10
-        $script:MaxLogRolling = 5
+        $script:CCFPaths.LogsPathOverride = $null
+        $script:CCFLog.CurrentLogFile = $null
+        $script:CCFChain.Categories = @()
+        $script:CCFChain.Id = ''
+        $script:CCFLog.Strict = $false
+        $script:CCFChain.AnchorFailures = 0
+        $script:CCFLog.JsonOutput = $false
+        $script:CCFLog.MaxLogSizeMB = 10
+        $script:CCFLog.MaxLogRolling = 5
     }
 }
 
@@ -253,7 +251,7 @@ Describe 'Rotation of a chained log' {
 Describe 'Chain anchors and strict writes' {
     AfterEach {
         Register-CCFChainAnchor
-        InModuleScope ArgosCCF { $script:CCFChainAnchorFailures = 0; $script:CCFStrict = $false }
+        InModuleScope ArgosCCF { $script:CCFChain.AnchorFailures = 0; $script:CCFLog.Strict = $false }
     }
 
     It 'passes every new head, with the identifier, and the last one is the head of the log' {

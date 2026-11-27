@@ -1,4 +1,4 @@
-# Redaction rules, registered secrets, custom patterns and Protect-CCFLogFile.
+﻿# Redaction rules, registered secrets, custom patterns and Protect-CCFLogFile.
 # All the secrets below are made-up test values.
 
 BeforeAll {
@@ -344,7 +344,7 @@ Describe 'Register-CCFSecret' {
         $entries = [System.Collections.Generic.List[object]]::new()
         Register-CCFSIEMProvider -ProviderScript { param($payload) $entries.Add($payload.Entry) }.GetNewClosure()
         Write-CCFLogError 'remote said: bad password Verano2026'
-        InModuleScope ArgosCCF { $script:SIEMProvider = $null }
+        InModuleScope ArgosCCF { $script:CCFLog.SIEMProvider = $null }
         $entries[-1].Message | Should -BeExactly 'remote said: bad password [REDACTED]'
     }
 }

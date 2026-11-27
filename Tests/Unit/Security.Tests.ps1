@@ -1,4 +1,4 @@
-BeforeAll {
+﻿BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '../../ArgosCCF.psd1') -Force
     $logDir = Get-CCFPath -Target 'Logs'
     $moduleRoot = Get-CCFPath -Target 'Root'

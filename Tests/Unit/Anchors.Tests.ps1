@@ -1,4 +1,4 @@
-# ArgosCCF 2.2: anchors of your own, anchors per category, chains of folders, decoded commands and keys for several
+﻿# ArgosCCF 2.2: anchors of your own, anchors per category, chains of folders, decoded commands and keys for several
 # accounts. Anchors go to memory (Set-CCFAnchorStore): the tests never write to the event log.
 
 BeforeAll {
@@ -20,8 +20,8 @@ AfterAll {
     Set-CCFAnchorStore -Store EventLog
     Set-CCFRedactionOption -EncodedCommand Fingerprint
     InModuleScope ArgosCCF {
-        $script:LogsPathOverride = $null; $script:CurrentLogFile = $null; $script:CCFChainCategories = @(); $script:CCFChainId = ''
-        $script:CCFChainKey = $null; $script:CCFChainKeyPath = $null; $script:CCFChainAnchorFailures = 0
+        $script:CCFPaths.LogsPathOverride = $null; $script:CCFLog.CurrentLogFile = $null; $script:CCFChain.Categories = @(); $script:CCFChain.Id = ''
+        $script:CCFChain.Key = $null; $script:CCFChain.KeyPath = $null; $script:CCFChain.AnchorFailures = 0
     }
 }
 

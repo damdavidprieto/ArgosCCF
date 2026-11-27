@@ -1,4 +1,4 @@
-BeforeDiscovery {
+﻿BeforeDiscovery {
     $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
     # PowerShell files with non-ASCII content must carry a UTF-8 BOM for Windows PowerShell 5.1.
     $script:nonAsciiFiles = Get-ChildItem -Path $repoRoot -Recurse -Include '*.ps1', '*.psm1', '*.psd1' |

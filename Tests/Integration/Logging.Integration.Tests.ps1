@@ -1,4 +1,4 @@
-Describe "ArgosCCF: logging end to end" {
+﻿Describe "ArgosCCF: logging end to end" {
     BeforeAll {
         Import-Module (Join-Path $PSScriptRoot "../../ArgosCCF.psd1") -Force
         $logDir = Get-CCFPath -Target "Logs"

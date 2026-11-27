@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-11-27
+
+### Changed
+- **Module state in five groups**: the module's script variables (about seventy) are now five groups, `CCFPaths`,
+  `CCFLog`, `CCFMutex`, `CCFChain` and `CCFRedact`, created before the Core files are loaded. Behaviour is the same.
+- **Long functions split**: the code of `Test-CCFLogChain`, `Write-CCFLog`, `Export-CCFEvidence`, `Remove-CCFOldLog`,
+  `Protect-CCFLogFile`, `New-CCFChainKey` and `Test-CCFFolderChain` now calls private helpers. Their parameters, help
+  and output are unchanged.
+- Every PowerShell source file starts with a UTF-8 byte order mark, so Windows PowerShell 5.1 reads them the same way
+  as PowerShell 7.
+
+### Compatibility
+- The public API is unchanged: the same 44 exported functions, with the same parameters and types as 2.2.0.
+
 ## [2.2.0] - 2026-11-26
 
 ### Added

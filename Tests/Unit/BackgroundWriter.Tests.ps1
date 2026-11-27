@@ -1,4 +1,4 @@
-# Background writing: Initialize-CCFLogger -Background, Get-/Wait-/Stop-CCFLogWriter.
+﻿# Background writing: Initialize-CCFLogger -Background, Get-/Wait-/Stop-CCFLogWriter.
 
 BeforeAll {
     $script:manifest = Join-Path $PSScriptRoot '../../ArgosCCF.psd1'
@@ -14,10 +14,10 @@ BeforeAll {
 AfterAll {
     Stop-CCFLogWriter
     InModuleScope ArgosCCF {
-        $script:LogsPathOverride = $null
-        $script:CurrentLogFile = $null
-        $script:MaxLogSizeMB = 10
-        $script:MaxLogRolling = 5
+        $script:CCFPaths.LogsPathOverride = $null
+        $script:CCFLog.CurrentLogFile = $null
+        $script:CCFLog.MaxLogSizeMB = 10
+        $script:CCFLog.MaxLogRolling = 5
     }
 }
 

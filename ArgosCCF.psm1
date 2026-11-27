@@ -1,12 +1,20 @@
-# ArgosCCF - secure logging for PowerShell scripts: secrets are redacted before anything is
+﻿# ArgosCCF - secure logging for PowerShell scripts: secrets are redacted before anything is
 # written. Also kept: layered configuration, plugins and parallel execution (deprecated).
 #
 # Resolves the module and data folders, then dot-sources the Core files into this module's scope.
 # License: MIT
 
-$script:ArgosCCFRoot = (Get-Item $PSScriptRoot).FullName
-$script:PathCache = [System.Collections.Concurrent.ConcurrentDictionary[string, string]]::new()
-$script:LogsPathOverride = $null
+# Module state. Everything the module keeps between calls is in one of these five groups, instead of about
+# seventy separate script variables. A function copies the group it uses into a local variable of the same name
+# ($CCFLog = $script:CCFLog), so it names the module state once: the groups are created here, before the Core files.
+$script:CCFPaths = @{}
+$script:CCFLog = @{}
+$script:CCFMutex = @{}
+$script:CCFChain = @{}
+$script:CCFRedact = @{}
+$script:CCFPaths.Root = (Get-Item $PSScriptRoot).FullName
+$script:CCFPaths.Cache = [System.Collections.Concurrent.ConcurrentDictionary[string, string]]::new()
+$script:CCFPaths.LogsPathOverride = $null
 
 function Test-CCFWritableDirectory {
     <#
@@ -72,17 +80,18 @@ function Initialize-CCFEnvironment {
     [CmdletBinding()]
     param()
 
-    $script:ArgosCCFRoot = (Get-Item $PSScriptRoot).FullName
-    if (-not (Test-Path -LiteralPath (Join-Path $script:ArgosCCFRoot 'Core')) -and $env:ARGOS_CCF_ROOT -and (Test-Path -LiteralPath $env:ARGOS_CCF_ROOT -PathType Container)) {
-        $script:ArgosCCFRoot = (Get-Item -LiteralPath $env:ARGOS_CCF_ROOT).FullName
+    $CCFPaths = $script:CCFPaths
+    $CCFPaths.Root = (Get-Item $PSScriptRoot).FullName
+    if (-not (Test-Path -LiteralPath (Join-Path $CCFPaths.Root 'Core')) -and $env:ARGOS_CCF_ROOT -and (Test-Path -LiteralPath $env:ARGOS_CCF_ROOT -PathType Container)) {
+        $CCFPaths.Root = (Get-Item -LiteralPath $env:ARGOS_CCF_ROOT).FullName
     }
-    $script:PathCache.Clear()
-    $script:LogsPathOverride = $null
+    $CCFPaths.Cache.Clear()
+    $CCFPaths.LogsPathOverride = $null
 
-    $script:DataRoot = Get-CCFDataRoot
-    $script:LogsPath = Join-Path $script:DataRoot 'Logs'
-    if (-not (Test-CCFWritableDirectory -Path $script:LogsPath)) {
-        Write-Warning "ArgosCCF: the logs folder $($script:LogsPath) cannot be written; log entries will only be shown on the console. Set `$env:CCF_DATA_PATH or use Initialize-CCFLogger -Path."
+    $CCFPaths.DataRoot = Get-CCFDataRoot
+    $CCFPaths.LogsPath = Join-Path $CCFPaths.DataRoot 'Logs'
+    if (-not (Test-CCFWritableDirectory -Path $CCFPaths.LogsPath)) {
+        Write-Warning "ArgosCCF: the logs folder $($CCFPaths.LogsPath) cannot be written; log entries will only be shown on the console. Set `$env:CCF_DATA_PATH or use Initialize-CCFLogger -Path."
     }
 }
 
@@ -117,19 +126,20 @@ function Get-CCFPath {
         [string]$Target
     )
 
-    if ($Target -eq 'Logs' -and $script:LogsPathOverride) { return $script:LogsPathOverride }
+    $CCFPaths = $script:CCFPaths
+    if ($Target -eq 'Logs' -and $CCFPaths.LogsPathOverride) { return $CCFPaths.LogsPathOverride }
 
     $memoized = $null
-    if ($script:PathCache.TryGetValue($Target, [ref]$memoized)) { return $memoized }
+    if ($CCFPaths.Cache.TryGetValue($Target, [ref]$memoized)) { return $memoized }
 
     $finalPath = switch ($Target) {
-        'Root' { $script:ArgosCCFRoot }
-        'Core' { Join-Path $script:ArgosCCFRoot 'Core' }
-        'Logs' { $script:LogsPath }
-        'Data' { $script:DataRoot }
+        'Root' { $CCFPaths.Root }
+        'Core' { Join-Path $CCFPaths.Root 'Core' }
+        'Logs' { $CCFPaths.LogsPath }
+        'Data' { $CCFPaths.DataRoot }
     }
 
-    $null = $script:PathCache.TryAdd($Target, $finalPath)
+    $null = $CCFPaths.Cache.TryAdd($Target, $finalPath)
     return $finalPath
 }
 

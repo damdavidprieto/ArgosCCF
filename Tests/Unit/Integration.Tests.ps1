@@ -1,4 +1,4 @@
-Describe 'ArgosCCF 2.0' {
+﻿Describe 'ArgosCCF 2.0' {
     BeforeAll { $module = Import-Module (Join-Path $PSScriptRoot '../../ArgosCCF.psd1') -Force -PassThru }
 
     It 'no longer has the configuration, plugin and parallel commands, nor the old aliases' {

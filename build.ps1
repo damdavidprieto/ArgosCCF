@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Builds ArgosCCF into output/ArgosCCF, ready to install or publish.
 

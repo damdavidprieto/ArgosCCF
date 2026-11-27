@@ -1,4 +1,4 @@
-BeforeDiscovery {
+﻿BeforeDiscovery {
     $script:examples = Get-ChildItem -Path (Join-Path $PSScriptRoot '..\..\Examples') -Filter '*.ps1' |
         ForEach-Object { @{ Name = $_.Name; Path = $_.FullName } }
 }

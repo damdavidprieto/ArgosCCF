@@ -1,4 +1,4 @@
-# Logs live in the per-user data folder, never in the module folder.
+﻿# Logs live in the per-user data folder, never in the module folder.
 
 BeforeAll {
     $script:previousDataPath = $env:CCF_DATA_PATH
@@ -44,7 +44,7 @@ Describe 'Data folder' {
 }
 
 Describe 'Initialize-CCFLogger -Path' {
-    AfterEach { InModuleScope ArgosCCF { $script:LogsPathOverride = $null } }
+    AfterEach { InModuleScope ArgosCCF { $script:CCFPaths.LogsPathOverride = $null } }
 
     It 'writes the session log and the category files to the chosen folder, creating it' {
         $folder = Join-Path $TestDrive 'script-logs'

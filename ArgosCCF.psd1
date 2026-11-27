@@ -1,6 +1,6 @@
-@{
+﻿@{
     RootModule           = 'ArgosCCF.psm1'
-    ModuleVersion        = '2.2.0'
+    ModuleVersion        = '2.3.0'
     CompatiblePSEditions = @('Desktop', 'Core')
     GUID                 = 'a4ce1d7d-c89a-46eb-9a85-5edccd5dab32'
     Author               = 'David Prieto'

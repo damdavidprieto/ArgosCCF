@@ -1,4 +1,4 @@
-# ArgosCCF 2.1: signed chains, checks in one step, who wrote each line, clock warnings, evidence packages and
+﻿# ArgosCCF 2.1: signed chains, checks in one step, who wrote each line, clock warnings, evidence packages and
 # the cheaper writes.
 
 BeforeAll {
@@ -16,7 +16,7 @@ BeforeAll {
     function Set-PlainChain([string]$Log) {
         InModuleScope ArgosCCF -Parameters @{ Log = $Log } {
             param($Log)
-            $previous = $script:CCFChainGenesis
+            $previous = $script:CCFChain.Genesis
             $lines = foreach ($line in [System.IO.File]::ReadAllLines($Log)) {
                 $text = (Split-CCFChainLine -Line $line).Text -replace 'Change2', 'Nothing'
                 $previous = Get-CCFChainHash -Previous $previous -Line $text
@@ -29,9 +29,9 @@ BeforeAll {
 
 AfterAll {
     InModuleScope ArgosCCF {
-        $script:LogsPathOverride = $null; $script:CurrentLogFile = $null; $script:CCFChainCategories = @(); $script:CCFChainId = ''
-        $script:CCFChainKey = $null; $script:CCFWriterInfo = $null; $script:CCFNoConsole = $false
-        $script:CCFChainAnchor = $null; $script:CCFAnchorEventLog = $null; $script:CCFChainAnchorFailures = 0
+        $script:CCFPaths.LogsPathOverride = $null; $script:CCFLog.CurrentLogFile = $null; $script:CCFChain.Categories = @(); $script:CCFChain.Id = ''
+        $script:CCFChain.Key = $null; $script:CCFLog.WriterInfo = $null; $script:CCFLog.NoConsole = $false
+        $script:CCFChain.AnchorFailures = 0
     }
 }
 
@@ -44,7 +44,7 @@ Describe 'Chain signed with a key' -Skip:($IsLinux -or $IsMacOS) {
     It 'signs every line, and the log is checked only with the key' {
         $log = New-AuditLog 'signed' -Options @{ ChainKeyPath = $keyFile }
         Get-Content $log | Should -Match ' #mac=[0-9a-f]{64}$'
-        InModuleScope ArgosCCF { $script:CCFChainKey = $null }
+        InModuleScope ArgosCCF { $script:CCFChain.Key = $null }
         $without = Test-CCFLogChain -Path $log
         $without.Valid | Should -BeFalse
         $without.Reason | Should -Match 'chain key'
@@ -57,7 +57,7 @@ Describe 'Chain signed with a key' -Skip:($IsLinux -or $IsMacOS) {
         $log = New-AuditLog 'rewritten' -Options @{ ChainKeyPath = $keyFile }
         Set-PlainChain $log
         # Without the key the forged log looks consistent; with it, it does not.
-        InModuleScope ArgosCCF { $script:CCFChainKey = $null }
+        InModuleScope ArgosCCF { $script:CCFChain.Key = $null }
         (Test-CCFLogChain -Path $log).Valid | Should -BeTrue
         $r = Test-CCFLogChain -Path $log -ChainKeyPath $keyFile
         $r.Valid | Should -BeFalse
@@ -107,7 +107,7 @@ Describe 'Chain signed with a key' -Skip:($IsLinux -or $IsMacOS) {
         foreach ($i in 1..10) { Write-CCFAuditRecord -Action "Change$i $pad" -User 'u' }
         $log = Join-Path $folder 'CCF_Audit.log'
         (Get-Item "$log.2").LastWriteTime = (Get-Date).AddDays(-60)
-        InModuleScope ArgosCCF { $script:CCFChainKey = $null }
+        InModuleScope ArgosCCF { $script:CCFChain.Key = $null }
         $removed = @(Remove-CCFOldLog -DaysToKeep 30 -WarningVariable warned -WarningAction SilentlyContinue)
         $removed.Count | Should -Be 0
         "$warned" | Should -Match 'signed'

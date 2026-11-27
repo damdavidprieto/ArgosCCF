@@ -1,4 +1,4 @@
-# Redaction: what is removed before anything is written, your own secrets and patterns, and
+﻿# Redaction: what is removed before anything is written, your own secrets and patterns, and
 # redacting text for other loggers and files that were already written.
 # Run from the repository: .\Examples\05-Redaction.ps1
 # All the secrets below are made-up examples.

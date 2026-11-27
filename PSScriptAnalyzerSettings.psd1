@@ -1,4 +1,4 @@
-# PSScriptAnalyzer settings used by build.ps1, the CI and tests/QA.
+﻿# PSScriptAnalyzer settings used by build.ps1, the CI and tests/QA.
 # All default rules apply at every severity, plus compatibility checks for the supported
 # platforms: Windows PowerShell 5.1 and PowerShell 7 on Windows, Linux and macOS.
 # Exceptions are made in the code with SuppressMessageAttribute and a justification,
