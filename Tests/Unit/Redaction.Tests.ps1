@@ -1,4 +1,4 @@
-# Redaction rules, registered secrets, custom patterns and Protect-CCFLogFile.
+﻿# Redaction rules, registered secrets, custom patterns and Protect-CCFLogFile.
 # All the secrets below are made-up test values.
 
 BeforeAll {

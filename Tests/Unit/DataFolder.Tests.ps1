@@ -1,4 +1,4 @@
-# Logs live in the per-user data folder, never in the module folder.
+﻿# Logs live in the per-user data folder, never in the module folder.
 
 BeforeAll {
     $script:previousDataPath = $env:CCF_DATA_PATH

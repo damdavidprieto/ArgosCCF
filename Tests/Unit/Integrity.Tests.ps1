@@ -1,4 +1,4 @@
-# ArgosCCF 2.1: signed chains, checks in one step, who wrote each line, clock warnings, evidence packages and
+﻿# ArgosCCF 2.1: signed chains, checks in one step, who wrote each line, clock warnings, evidence packages and
 # the cheaper writes.
 
 BeforeAll {

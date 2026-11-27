@@ -1,4 +1,4 @@
-# Background writing: Initialize-CCFLogger -Background, Get-/Wait-/Stop-CCFLogWriter.
+﻿# Background writing: Initialize-CCFLogger -Background, Get-/Wait-/Stop-CCFLogWriter.
 
 BeforeAll {
     $script:manifest = Join-Path $PSScriptRoot '../../ArgosCCF.psd1'

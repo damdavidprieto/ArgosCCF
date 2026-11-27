@@ -1,4 +1,4 @@
-<#
+﻿<#
     Quality checks shared by HermesConsoleUI, ArgosCCF and ThemisRules, modeled on the QA tests
     of the Sampler module template: every exported command is documented, the code passes
     PSScriptAnalyzer with the repository settings, the changelog follows Keep a Changelog and

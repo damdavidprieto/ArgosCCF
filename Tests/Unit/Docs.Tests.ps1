@@ -1,4 +1,4 @@
-BeforeAll {
+﻿BeforeAll {
     $root = Join-Path $PSScriptRoot '../..'
     $manifest = Import-PowerShellDataFile -Path (Join-Path $root 'ArgosCCF.psd1')
     $reference = Get-Content -Path (Join-Path $root 'Docs/API-Reference.md') -Raw -Encoding UTF8

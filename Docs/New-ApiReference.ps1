@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Regenerates Docs/API-Reference.md from the comment-based help of the exported commands.
 

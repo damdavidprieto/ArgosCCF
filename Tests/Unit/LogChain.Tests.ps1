@@ -1,4 +1,4 @@
-# Tamper-evident logs: Initialize-CCFLogger -Chain, Test-CCFLogChain and Get-CCFLogChainHead.
+﻿# Tamper-evident logs: Initialize-CCFLogger -Chain, Test-CCFLogChain and Get-CCFLogChainHead.
 
 BeforeAll {
     $script:manifest = Join-Path $PSScriptRoot '../../ArgosCCF.psd1'

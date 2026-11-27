@@ -1,4 +1,4 @@
-# ArgosCCF - secure logging for PowerShell scripts: secrets are redacted before anything is
+﻿# ArgosCCF - secure logging for PowerShell scripts: secrets are redacted before anything is
 # written. Also kept: layered configuration, plugins and parallel execution (deprecated).
 #
 # Resolves the module and data folders, then dot-sources the Core files into this module's scope.

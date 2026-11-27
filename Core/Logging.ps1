@@ -1,4 +1,4 @@
-# ArgosCCF logging engine.
+﻿# ArgosCCF logging engine.
 #
 # Writes log entries to the console (or a registered provider), to a SIEM provider and to log
 # files, after redacting secrets (Redaction.ps1). Also provides security and audit records, log

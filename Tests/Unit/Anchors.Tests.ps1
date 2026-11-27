@@ -1,4 +1,4 @@
-# ArgosCCF 2.2: anchors of your own, anchors per category, chains of folders, decoded commands and keys for several
+﻿# ArgosCCF 2.2: anchors of your own, anchors per category, chains of folders, decoded commands and keys for several
 # accounts. Anchors go to memory (Set-CCFAnchorStore): the tests never write to the event log.
 
 BeforeAll {

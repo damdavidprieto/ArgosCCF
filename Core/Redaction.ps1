@@ -1,4 +1,4 @@
-# ArgosCCF redaction engine.
+﻿# ArgosCCF redaction engine.
 #
 # Removes secrets from text, hashtables and objects before they are logged. Write-CCFLog applies
 # it to every message and its data; Protect-CCFSensitiveData and Protect-CCFLogFile expose it on
