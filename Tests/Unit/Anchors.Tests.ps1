@@ -20,8 +20,8 @@ AfterAll {
     Set-CCFAnchorStore -Store EventLog
     Set-CCFRedactionOption -EncodedCommand Fingerprint
     InModuleScope ArgosCCF {
-        $script:LogsPathOverride = $null; $script:CurrentLogFile = $null; $script:CCFChainCategories = @(); $script:CCFChainId = ''
-        $script:CCFChainKey = $null; $script:CCFChainKeyPath = $null; $script:CCFChainAnchorFailures = 0
+        $script:CCFPaths.LogsPathOverride = $null; $script:CCFLog.CurrentLogFile = $null; $script:CCFChain.Categories = @(); $script:CCFChain.Id = ''
+        $script:CCFChain.Key = $null; $script:CCFChain.KeyPath = $null; $script:CCFChain.AnchorFailures = 0
     }
 }
 

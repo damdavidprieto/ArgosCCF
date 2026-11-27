@@ -8,10 +8,10 @@ BeforeAll {
 
 AfterAll {
     InModuleScope ArgosCCF {
-        $script:LogsPathOverride = $null
-        $script:CurrentLogFile = $null
-        $script:MaxLogSizeMB = 10
-        $script:MaxLogRolling = 5
+        $script:CCFPaths.LogsPathOverride = $null
+        $script:CCFLog.CurrentLogFile = $null
+        $script:CCFLog.MaxLogSizeMB = 10
+        $script:CCFLog.MaxLogRolling = 5
     }
 }
 
@@ -49,7 +49,7 @@ Describe 'Concurrent writers' {
             $a | Should -Match '^ArgosCCF-[0-9a-f]{32}$'
             Get-CCFFileMutexName -Path (Join-Path $Folder 'b.log') | Should -Not -Be $a
             if (-not ($IsLinux -or $IsMacOS)) {
-                $script:CCFMutexNames.Clear()
+                $script:CCFMutex.Names.Clear()
                 Get-CCFFileMutexName -Path (Join-Path $Folder 'A.LOG') | Should -Be $a
             }
         }

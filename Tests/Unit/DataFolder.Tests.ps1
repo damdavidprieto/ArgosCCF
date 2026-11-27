@@ -44,7 +44,7 @@ Describe 'Data folder' {
 }
 
 Describe 'Initialize-CCFLogger -Path' {
-    AfterEach { InModuleScope ArgosCCF { $script:LogsPathOverride = $null } }
+    AfterEach { InModuleScope ArgosCCF { $script:CCFPaths.LogsPathOverride = $null } }
 
     It 'writes the session log and the category files to the chosen folder, creating it' {
         $folder = Join-Path $TestDrive 'script-logs'

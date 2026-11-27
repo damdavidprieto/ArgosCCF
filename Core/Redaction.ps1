@@ -15,38 +15,38 @@
 # Every regular expression has a time limit. If one runs out, or anything else fails, the whole
 # text is replaced (fail closed): a log entry can lose its content, never leak a secret.
 
-$script:CCFRegexTimeout = [timespan]::FromMilliseconds(500)
-$script:CCFRegexOptions = [System.Text.RegularExpressions.RegexOptions]::CultureInvariant
-$script:CCFSecretValues = [System.Collections.Generic.List[string]]::new()
-$script:CCFSecretRegex = $null
-$script:CCFCustomPatterns = [ordered]@{}
+$script:CCFRedact.RegexTimeout = [timespan]::FromMilliseconds(500)
+$script:CCFRedact.RegexOptions = [System.Text.RegularExpressions.RegexOptions]::CultureInvariant
+$script:CCFRedact.SecretValues = [System.Collections.Generic.List[string]]::new()
+$script:CCFRedact.SecretRegex = $null
+$script:CCFRedact.CustomPatterns = [ordered]@{}
 
 # Key names that mark a secret. Long names may appear inside a longer key (db_password,
 # ClientSecret, x-api-key); short ones only as the whole key, so "design" or "passed" are not
 # matched. Authorization is handled by its own rule in text, which keeps the scheme.
-$script:CCFLongSecretKeys = 'password|passwd|passphrase|contrase(?:n|\u00f1|n\u0303)a|secret(?!ar)|token|api[_-]?key|access[_-]?key|private[_-]?key|account[_-]?key|shared[_-]?key|credential|credencial|cookie|session[_-]?id|connection[_-]?string'
-$script:CCFShortSecretKeys = 'pwd|pass|pw|pin|sig|sas|pat|clave'
+$script:CCFRedact.LongSecretKeys = 'password|passwd|passphrase|contrase(?:n|\u00f1|n\u0303)a|secret(?!ar)|token|api[_-]?key|access[_-]?key|private[_-]?key|account[_-]?key|shared[_-]?key|credential|credencial|cookie|session[_-]?id|connection[_-]?string'
+$script:CCFRedact.ShortSecretKeys = 'pwd|pass|pw|pin|sig|sas|pat|clave'
 # "Signature" only at the end of the key (x-amz-signature, RequestSignature): in the middle it names something about
 # a signature (AntivirusSignatureVersion, SignatureScheduleTime), not the signature itself.
-$script:CCFSuffixSecretKeys = '[A-Za-z0-9_.-]*signature'
+$script:CCFRedact.SuffixSecretKeys = '[A-Za-z0-9_.-]*signature'
 # Keys that describe a secret instead of holding it: MinimumPasswordLength, PasswordLastSet, PasswordNeverExpires,
 # credential.helper, TokenType...
-$script:CCFKeyMetadataRegex = [regex]::new('(?:length|len|age|count|required|expires|expiration|expiry|lastset|changeable|history|complexity|policy|version|enabled|disabled|outofdate|helper|attributes?|prompt|path|file|date|time|interval|type|mode|status|state|level)$', 'IgnoreCase, CultureInvariant')
+$script:CCFRedact.KeyMetadataRegex = [regex]::new('(?:length|len|age|count|required|expires|expiration|expiry|lastset|changeable|history|complexity|policy|version|enabled|disabled|outofdate|helper|attributes?|prompt|path|file|date|time|interval|type|mode|status|state|level)$', 'IgnoreCase, CultureInvariant')
 # Unquoted values that are not a secret: true, false, null, none and the start of an object or list. Code (a variable,
 # an expression, if, a command name such as Read-Host) only in an assignment written as code, with spaces around "=",
 # since a password can look like that too. A quoted value is always redacted.
-$script:CCFCommandNamePattern = '(?:' + (@(foreach ($group in 'Common', 'Communications', 'Data', 'Diagnostic', 'Lifecycle', 'Security', 'Other') {
+$script:CCFRedact.CommandNamePattern = '(?:' + (@(foreach ($group in 'Common', 'Communications', 'Data', 'Diagnostic', 'Lifecycle', 'Security', 'Other') {
             ("System.Management.Automation.Verbs$group" -as [type]).GetFields().Name
         }) -join '|') + ')-[A-Za-z][A-Za-z0-9]*'
 # yes/no: options such as net user /passwordreq:yes or /passwordchg:no, whose value is what an audit needs.
-$script:CCFNotSecretValueRegex = [regex]::new('^(?:\$?(?:true|false|null)$|(?:none|yes|no)$|[{\[]$)', 'IgnoreCase, CultureInvariant')
-$script:CCFCodeValueRegex = [regex]::new('^(?:\$[A-Za-z_{(]|@[({]|[{\[(]|(?:if|foreach|switch)$|' + $script:CCFCommandNamePattern + '$)', 'IgnoreCase, CultureInvariant')
+$script:CCFRedact.NotSecretValueRegex = [regex]::new('^(?:\$?(?:true|false|null)$|(?:none|yes|no)$|[{\[]$)', 'IgnoreCase, CultureInvariant')
+$script:CCFRedact.CodeValueRegex = [regex]::new('^(?:\$[A-Za-z_{(]|@[({]|[{\[(]|(?:if|foreach|switch)$|' + $script:CCFRedact.CommandNamePattern + '$)', 'IgnoreCase, CultureInvariant')
 
 # One command-line argument: quoted parts and plain characters, joined as a shell would. An unclosed quote runs to the end.
-$script:CCFArgument = '(?:"[^"]*(?:"|$)|''[^'']*(?:''|$)|[^\s"''])+'
+$script:CCFRedact.Argument = '(?:"[^"]*(?:"|$)|''[^'']*(?:''|$)|[^\s"''])+'
 # Parameters that take a secret as their value. The name has to end with the secret word, so -PasswordNeverExpires
 # or --token-file are left alone. A value that looks like another option is not a value.
-$script:CCFSecretParameter = '(?:[A-Za-z0-9_.-]*(?:password|passwd|passphrase|contrase(?:n|\u00f1|n\u0303)a|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|account[_-]?key|shared[_-]?key)|pass|pwd|pw|clave)'
+$script:CCFRedact.SecretParameter = '(?:[A-Za-z0-9_.-]*(?:password|passwd|passphrase|contrase(?:n|\u00f1|n\u0303)a|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|account[_-]?key|shared[_-]?key)|pass|pwd|pw|clave)'
 
 # --- Private helpers ---
 
@@ -62,12 +62,13 @@ function Get-CCFCompiledRegex {
         [switch]$IgnoreCase
     )
 
-    $options = $script:CCFRegexOptions
+    $CCFRedact = $script:CCFRedact
+    $options = $CCFRedact.RegexOptions
     if ($IgnoreCase) { $options = $options -bor [System.Text.RegularExpressions.RegexOptions]::IgnoreCase }
-    return [regex]::new($Pattern, $options, $script:CCFRegexTimeout)
+    return [regex]::new($Pattern, $options, $CCFRedact.RegexTimeout)
 }
 
-$script:CCFKeyNameRegex = Get-CCFCompiledRegex -IgnoreCase -Pattern ("^(?:[A-Za-z0-9_.-]*(?:$($script:CCFLongSecretKeys)|authorization)[A-Za-z0-9_.-]*|$($script:CCFSuffixSecretKeys)|$($script:CCFShortSecretKeys))$")
+$script:CCFRedact.KeyNameRegex = Get-CCFCompiledRegex -IgnoreCase -Pattern ("^(?:[A-Za-z0-9_.-]*(?:$($script:CCFRedact.LongSecretKeys)|authorization)[A-Za-z0-9_.-]*|$($script:CCFRedact.SuffixSecretKeys)|$($script:CCFRedact.ShortSecretKeys))$")
 
 function Get-CCFProgramRegex {
     <#
@@ -91,7 +92,7 @@ function Get-CCFOptionRegex {
     [OutputType([regex])]
     param(
         [Parameter(Mandatory = $true)][string]$Option,
-        [string]$Value = $script:CCFArgument
+        [string]$Value = $script:CCFRedact.Argument
     )
 
     return Get-CCFCompiledRegex -IgnoreCase -Pattern "(?<=\s)(?<k>$Option)(?<v>$Value)"
@@ -130,7 +131,7 @@ function Invoke-CCFProgramRule {
 
 # Built-in rules. Order matters: specific formats run before the generic key/value rule, so a
 # connection string or an Authorization header keeps its structure.
-$script:CCFBuiltInRules = @(
+$script:CCFRedact.BuiltInRules = @(
     @{
         Name        = 'PrivateKeyBlock'
         Description = 'PEM private key blocks (-----BEGIN ... PRIVATE KEY----- to the END line, or to the end of the text)'
@@ -164,7 +165,7 @@ $script:CCFBuiltInRules = @(
     @{
         Name        = 'XmlElement'
         Description = 'XML elements whose name is a secret (<password>...</password>)'
-        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern "(?<o><(?:[A-Za-z0-9_.:-]*(?:$($script:CCFLongSecretKeys))[A-Za-z0-9_.-]*|(?:[A-Za-z0-9_.-]+:)?(?:$($script:CCFShortSecretKeys)))(?:\s[^<>]*)?(?<!/)>)(?:\s*<!\[CDATA\[[\s\S]*?\]\]>\s*|[^<]+)(?=</)"
+        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern "(?<o><(?:[A-Za-z0-9_.:-]*(?:$($script:CCFRedact.LongSecretKeys))[A-Za-z0-9_.-]*|(?:[A-Za-z0-9_.-]+:)?(?:$($script:CCFRedact.ShortSecretKeys)))(?:\s[^<>]*)?(?<!/)>)(?:\s*<!\[CDATA\[[\s\S]*?\]\]>\s*|[^<]+)(?=</)"
         Replacement = '${o}[REDACTED]'
     }
     @{
@@ -177,31 +178,31 @@ $script:CCFBuiltInRules = @(
     @{
         Name        = 'SecureStringLiteral'
         Description = 'Text passed to ConvertTo-SecureString, as an argument or through the pipeline'
-        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern "(?<k>(?<![\w-])ConvertTo-SecureString\s+(?:-(?:AsPlainText|Force)\s+)*(?:-String[\s:]+)?\(?)(?![-`$])$($script:CCFArgument)|(?:""[^""]*""|'[^']*')(?=\s*\|\s*ConvertTo-SecureString(?![\w-]))"
+        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern "(?<k>(?<![\w-])ConvertTo-SecureString\s+(?:-(?:AsPlainText|Force)\s+)*(?:-String[\s:]+)?\(?)(?![-`$])$($script:CCFRedact.Argument)|(?:""[^""]*""|'[^']*')(?=\s*\|\s*ConvertTo-SecureString(?![\w-]))"
         Replacement = '${k}[REDACTED]'
     }
     @{
         Name        = 'CommandLineParameter'
         Description = 'Command-line parameters that take a secret (-Password x, --token x, /pass:x, -pw x), in any program'
-        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern "(?<![^\s""'(,;|&{])(?<k>(?:--?|/)$($script:CCFSecretParameter)(?:\s*[:=]\s*|\s+))(?!--?[A-Za-z])$($script:CCFArgument)"
+        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern "(?<![^\s""'(,;|&{])(?<k>(?:--?|/)$($script:CCFRedact.SecretParameter)(?:\s*[:=]\s*|\s+))(?!--?[A-Za-z])$($script:CCFRedact.Argument)"
         Replacement = '${k}[REDACTED]'
     }
     @{
         Name        = 'NetUser'
         Description = 'Passwords in "net user name password"'
-        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern "(?<k>(?<![\w-])net1?(?:\.exe)?[""']?\s+user\s+(?![/])(?:""[^""]*""|[^\s""]+)\s+(?:/(?:""[^""]*""|[^\s""])+\s+)*)(?!/|\*(?:\s|$))$($script:CCFArgument)"
+        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern "(?<k>(?<![\w-])net1?(?:\.exe)?[""']?\s+user\s+(?![/])(?:""[^""]*""|[^\s""]+)\s+(?:/(?:""[^""]*""|[^\s""])+\s+)*)(?!/|\*(?:\s|$))$($script:CCFRedact.Argument)"
         Replacement = '${k}[REDACTED]'
     }
     @{
         Name        = 'NetUse'
         Description = 'Passwords in "net use device \\server\share password", before or after the options'
-        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern "(?<k>(?<![\w-])net1?(?:\.exe)?[""']?\s+use\s+(?:(?:[a-z]:|\*|lpt\d:?)\s+)?(?:""\\\\[^""]*""|\\\\[^\s""]+)\s+(?:/(?:""[^""]*""|[^\s""])+\s+)*)(?!/|\*(?:\s|$))$($script:CCFArgument)"
+        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern "(?<k>(?<![\w-])net1?(?:\.exe)?[""']?\s+use\s+(?:(?:[a-z]:|\*|lpt\d:?)\s+)?(?:""\\\\[^""]*""|\\\\[^\s""]+)\s+(?:/(?:""[^""]*""|[^\s""])+\s+)*)(?!/|\*(?:\s|$))$($script:CCFRedact.Argument)"
         Replacement = '${k}[REDACTED]'
     }
     @{
         Name        = 'RasDial'
         Description = 'Passwords in "rasdial connection user password"'
-        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern "(?<k>(?<![\w-])rasdial(?:\.exe)?[""']?\s+(?:(?:""[^""]*""|[^\s""/]+)\s+){2})(?!/|\*(?:\s|$))$($script:CCFArgument)"
+        Regex       = Get-CCFCompiledRegex -IgnoreCase -Pattern "(?<k>(?<![\w-])rasdial(?:\.exe)?[""']?\s+(?:(?:""[^""]*""|[^\s""/]+)\s+){2})(?!/|\*(?:\s|$))$($script:CCFRedact.Argument)"
         Replacement = '${k}[REDACTED]'
     }
     @{
@@ -309,28 +310,28 @@ $script:CCFBuiltInRules = @(
 )
 
 # Rules for the options of known programs run only when one of those programs is in the text.
-$script:CCFAnyProgramRegex = Get-CCFCompiledRegex -IgnoreCase -Pattern (@($script:CCFBuiltInRules | Where-Object { $_.ContainsKey('Program') } | ForEach-Object { "(?:$($_.Program.ToString()))" }) -join '|')
-foreach ($rule in $script:CCFBuiltInRules) {
+$script:CCFRedact.AnyProgramRegex = Get-CCFCompiledRegex -IgnoreCase -Pattern (@($script:CCFRedact.BuiltInRules | Where-Object { $_.ContainsKey('Program') } | ForEach-Object { "(?:$($_.Program.ToString()))" }) -join '|')
+foreach ($rule in $script:CCFRedact.BuiltInRules) {
     if ($rule.ContainsKey('Program')) { $rule.Replacement = if ($rule.Fingerprint) { '${k}[ENCODED ...]' } else { '${k}[REDACTED]' } }
 }
 
 # Whether any of the other built-in rules matches, in one search: when none does, applying them one by one would leave
 # the text as it is, so they are skipped. Most log messages have nothing to redact.
-$script:CCFAnyRuleRegex = [regex]::new((@($script:CCFBuiltInRules | Where-Object { -not $_.ContainsKey('Program') } | ForEach-Object {
+$script:CCFRedact.AnyRuleRegex = [regex]::new((@($script:CCFRedact.BuiltInRules | Where-Object { -not $_.ContainsKey('Program') } | ForEach-Object {
                 $flag = if ($_.Regex.Options.HasFlag([System.Text.RegularExpressions.RegexOptions]::IgnoreCase)) { 'i' } else { '-i' }
                 "(?${flag}:$($_.Regex.ToString()))"
-            }) -join '|'), $script:CCFRegexOptions, $script:CCFRegexTimeout)
+            }) -join '|'), $script:CCFRedact.RegexOptions, $script:CCFRedact.RegexTimeout)
 
-$script:CCFKeyValueRegex = Get-CCFCompiledRegex -IgnoreCase -Pattern ("(?<![A-Za-z0-9_.-])(?<q>[""']?)(?<k>[A-Za-z0-9_.-]*(?:$($script:CCFLongSecretKeys))[A-Za-z0-9_.-]*|$($script:CCFSuffixSecretKeys)|(?:$($script:CCFShortSecretKeys)))\k<q>(?<sep>\s*[:=]\s*)(?![""']?\[REDACTED)(?:""(?<dq>[^""]*)""|'(?<sq>[^']*)'|(?<v>[^\s,;&""'}\]]+))")
+$script:CCFRedact.KeyValueRegex = Get-CCFCompiledRegex -IgnoreCase -Pattern ("(?<![A-Za-z0-9_.-])(?<q>[""']?)(?<k>[A-Za-z0-9_.-]*(?:$($script:CCFRedact.LongSecretKeys))[A-Za-z0-9_.-]*|$($script:CCFRedact.SuffixSecretKeys)|(?:$($script:CCFRedact.ShortSecretKeys)))\k<q>(?<sep>\s*[:=]\s*)(?![""']?\[REDACTED)(?:""(?<dq>[^""]*)""|'(?<sq>[^']*)'|(?<v>[^\s,;&""'}\]]+))")
 
 # Candidates for the entropy check: runs of 20 or more letters, digits, '_', '+' and '-' (plus
 # base64 padding) that are not part of a path, a URL or a host name.
-$script:CCFEntropyCandidateRegex = Get-CCFCompiledRegex -Pattern '(?<![A-Za-z0-9_+/\\.-])[A-Za-z0-9_+-]{20,}={0,2}(?![A-Za-z0-9_+=/\\-])(?!\.[A-Za-z0-9])'
+$script:CCFRedact.EntropyCandidateRegex = Get-CCFCompiledRegex -Pattern '(?<![A-Za-z0-9_+/\\.-])[A-Za-z0-9_+-]{20,}={0,2}(?![A-Za-z0-9_+=/\\-])(?!\.[A-Za-z0-9])'
 
-$script:CCFGuidRegex = Get-CCFCompiledRegex -Pattern '^\{?[0-9A-Fa-f]{8}-(?:[0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}\}?$'
-$script:CCFSidRegex = Get-CCFCompiledRegex -Pattern '^S-1-\d+(?:-\d+)+$'
-$script:CCFHexRegex = Get-CCFCompiledRegex -Pattern '^[0-9A-Fa-f]+$'
-$script:CCFNameLikeRegex = Get-CCFCompiledRegex -IgnoreCase -Pattern ('^(?:' + $script:CCFCommandNamePattern + '|[A-Za-z0-9.]+_[a-z0-9]{13})$')
+$script:CCFRedact.GuidRegex = Get-CCFCompiledRegex -Pattern '^\{?[0-9A-Fa-f]{8}-(?:[0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}\}?$'
+$script:CCFRedact.SidRegex = Get-CCFCompiledRegex -Pattern '^S-1-\d+(?:-\d+)+$'
+$script:CCFRedact.HexRegex = Get-CCFCompiledRegex -Pattern '^[0-9A-Fa-f]+$'
+$script:CCFRedact.NameLikeRegex = Get-CCFCompiledRegex -IgnoreCase -Pattern ('^(?:' + $script:CCFRedact.CommandNamePattern + '|[A-Za-z0-9.]+_[a-z0-9]{13})$')
 
 function Get-CCFFingerprint {
     <#
@@ -348,8 +349,8 @@ function Get-CCFFingerprint {
 }
 
 # Set-CCFRedactionOption -EncodedCommand: Fingerprint (the default) or Decode.
-$script:CCFEncodedMode = 'Fingerprint'
-$script:CCFDecoding = $false
+$script:CCFRedact.EncodedMode = 'Fingerprint'
+$script:CCFRedact.Decoding = $false
 
 function ConvertTo-CCFEncodedValue {
     <#
@@ -359,18 +360,19 @@ function ConvertTo-CCFEncodedValue {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory = $true)][string]$Text)
+    $CCFRedact = $script:CCFRedact
     $mark = Get-CCFFingerprint -Text $Text
     # One level only: a command encoded inside the decoded one keeps its fingerprint.
-    if ($script:CCFEncodedMode -ne 'Decode' -or $script:CCFDecoding) { return $mark }
+    if ($CCFRedact.EncodedMode -ne 'Decode' -or $CCFRedact.Decoding) { return $mark }
     try { $decoded = [System.Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($Text)) }
     catch { return $mark }
     # Not PowerShell text (another encoding, or binary data): the fingerprint only. Commands are almost all plain
     # ASCII and Latin-1 letters; random bytes decode to other scripts.
     $plain = ([regex]::Matches($decoded, '[\x20-\x7E\t\r\n\u00A0-\u00FF]')).Count
     if ($decoded -match '[\x00-\x08\x0E-\x1F\uFFFD]' -or $plain -lt 0.9 * $decoded.Length) { return $mark }
-    $script:CCFDecoding = $true
+    $CCFRedact.Decoding = $true
     try { $clean = Invoke-CCFTextRedaction -Text $decoded }
-    finally { $script:CCFDecoding = $false }
+    finally { $CCFRedact.Decoding = $false }
     return $mark.Replace('[ENCODED ', '[DECODED ').TrimEnd(']') + ": $clean]"
 }
 
@@ -397,7 +399,8 @@ function Set-CCFRedactionOption {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Changes a setting in memory only.')]
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][ValidateSet('Fingerprint', 'Decode')][string]$EncodedCommand)
-    $script:CCFEncodedMode = $EncodedCommand
+    $CCFRedact = $script:CCFRedact
+    $CCFRedact.EncodedMode = $EncodedCommand
 }
 
 function Sync-CCFSecretRegex {
@@ -408,10 +411,11 @@ function Sync-CCFSecretRegex {
     [CmdletBinding()]
     param()
 
-    if ($script:CCFSecretValues.Count -eq 0) { $script:CCFSecretRegex = $null; return }
+    $CCFRedact = $script:CCFRedact
+    if ($CCFRedact.SecretValues.Count -eq 0) { $CCFRedact.SecretRegex = $null; return }
     # Longest first, so a secret that contains another one is replaced whole.
-    $escaped = $script:CCFSecretValues | Sort-Object -Property Length -Descending | ForEach-Object { [regex]::Escape($_) }
-    $script:CCFSecretRegex = Get-CCFCompiledRegex -Pattern ($escaped -join '|')
+    $escaped = $CCFRedact.SecretValues | Sort-Object -Property Length -Descending | ForEach-Object { [regex]::Escape($_) }
+    $CCFRedact.SecretRegex = Get-CCFCompiledRegex -Pattern ($escaped -join '|')
 }
 
 function Test-CCFAnyRule {
@@ -425,7 +429,8 @@ function Test-CCFAnyRule {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text)
-    return ($Text.Length -gt 2048 -or $script:CCFAnyRuleRegex.IsMatch($Text))
+    $CCFRedact = $script:CCFRedact
+    return ($Text.Length -gt 2048 -or $CCFRedact.AnyRuleRegex.IsMatch($Text))
 }
 
 function Invoke-CCFTextRedaction {
@@ -437,14 +442,15 @@ function Invoke-CCFTextRedaction {
     [OutputType([string])]
     param([AllowNull()][AllowEmptyString()][string]$Text)
 
+    $CCFRedact = $script:CCFRedact
     if ([string]::IsNullOrEmpty($Text)) { return $Text }
     try {
         $out = $Text
-        if ($null -ne $script:CCFSecretRegex) { $out = $script:CCFSecretRegex.Replace($out, '[REDACTED]') }
+        if ($null -ne $CCFRedact.SecretRegex) { $out = $CCFRedact.SecretRegex.Replace($out, '[REDACTED]') }
 
-        $hasProgram = $script:CCFAnyProgramRegex.IsMatch($out)
+        $hasProgram = $CCFRedact.AnyProgramRegex.IsMatch($out)
         $hasRule = Test-CCFAnyRule -Text $out
-        foreach ($rule in $script:CCFBuiltInRules) {
+        foreach ($rule in $CCFRedact.BuiltInRules) {
             if ($rule.ContainsKey('Program')) {
                 if (-not $hasProgram) { continue }
                 $new = Invoke-CCFProgramRule -Text $out -Rule $rule
@@ -453,20 +459,20 @@ function Invoke-CCFTextRedaction {
             }
             elseif ($hasRule) { $out = $rule.Regex.Replace($out, $rule.Replacement) }
         }
-        foreach ($name in @($script:CCFCustomPatterns.Keys)) {
-            $rule = $script:CCFCustomPatterns[$name]
+        foreach ($name in @($CCFRedact.CustomPatterns.Keys)) {
+            $rule = $CCFRedact.CustomPatterns[$name]
             $out = $rule.Regex.Replace($out, $rule.Replacement)
         }
 
-        if ($script:CCFKeyValueRegex.IsMatch($out)) {
-        $out = $script:CCFKeyValueRegex.Replace($out, [System.Text.RegularExpressions.MatchEvaluator] {
+        if ($CCFRedact.KeyValueRegex.IsMatch($out)) {
+        $out = $CCFRedact.KeyValueRegex.Replace($out, [System.Text.RegularExpressions.MatchEvaluator] {
                 param($m)
                 $key = $m.Groups['k'].Value
-                if ($script:CCFKeyMetadataRegex.IsMatch($key)) { return $m.Value }
+                if ($script:CCFRedact.KeyMetadataRegex.IsMatch($key)) { return $m.Value }
                 if ($m.Groups['v'].Success) {
                     $plain = $m.Groups['v'].Value
-                    if ($script:CCFNotSecretValueRegex.IsMatch($plain)) { return $m.Value }
-                    if ($m.Groups['sep'].Value -match '^\s+=\s+$' -and $script:CCFCodeValueRegex.IsMatch($plain)) { return $m.Value }
+                    if ($script:CCFRedact.NotSecretValueRegex.IsMatch($plain)) { return $m.Value }
+                    if ($m.Groups['sep'].Value -match '^\s+=\s+$' -and $script:CCFRedact.CodeValueRegex.IsMatch($plain)) { return $m.Value }
                     # "credential.helper= -c core.askPass=": the empty value is followed by the next option, not by a value.
                     if ($plain -cmatch '^--?[a-z][a-z-]*$' -and $m.Groups['sep'].Value -match '^=\s+$') { return $m.Value }
                     # Windows session numbers (SessionId : 1), not web session identifiers.
@@ -482,8 +488,8 @@ function Invoke-CCFTextRedaction {
             })
         }
 
-        if ($script:CCFEntropyCandidateRegex.IsMatch($out)) {
-        $out = $script:CCFEntropyCandidateRegex.Replace($out, [System.Text.RegularExpressions.MatchEvaluator] {
+        if ($CCFRedact.EntropyCandidateRegex.IsMatch($out)) {
+        $out = $CCFRedact.EntropyCandidateRegex.Replace($out, [System.Text.RegularExpressions.MatchEvaluator] {
                 param($m)
                 if (Test-CCFEntropyContent -String $m.Value) { '[REDACTED-ENTROPY]' } else { $m.Value }
             })
@@ -509,6 +515,7 @@ function ConvertTo-CCFRedactedValue {
         [int]$Depth = 0
     )
 
+    $CCFRedact = $script:CCFRedact
     if ($null -eq $InputData) { return $null }
     if ($InputData -is [string]) { return (Invoke-CCFTextRedaction -Text $InputData) }
     if ($InputData -is [System.Security.SecureString]) { return '[REDACTED]' }
@@ -530,7 +537,7 @@ function ConvertTo-CCFRedactedValue {
             # Assigned inside the branches: "$val = if ..." would unroll a one-item array.
             if ($isDictionary) { $val = $InputData[$key] } else { $val = $InputData.$key }
 
-            $isSecret = $script:CCFKeyNameRegex.IsMatch([string]$key) -and -not ($val -is [bool]) -and -not $script:CCFKeyMetadataRegex.IsMatch([string]$key)
+            $isSecret = $CCFRedact.KeyNameRegex.IsMatch([string]$key) -and -not ($val -is [bool]) -and -not $CCFRedact.KeyMetadataRegex.IsMatch([string]$key)
             if (-not $isSecret -and $val -is [string] -and (Test-CCFEntropyContent -String $val)) { $isSecret = $true }
 
             if ($isSecret) { $newData[$key] = '[REDACTED]' }
@@ -596,13 +603,14 @@ function Test-CCFEntropyContent {
         [string]$String
     )
 
+    $CCFRedact = $script:CCFRedact
     if ([string]::IsNullOrEmpty($String) -or $String.Length -lt 20 -or $String -match '\s') { return $false }
     if ($String -match '[\\/:]') { return $false }
     $core = $String.TrimEnd('=')
-    if ($script:CCFGuidRegex.IsMatch($core) -or $script:CCFSidRegex.IsMatch($core) -or $script:CCFHexRegex.IsMatch($core)) { return $false }
+    if ($CCFRedact.GuidRegex.IsMatch($core) -or $CCFRedact.SidRegex.IsMatch($core) -or $CCFRedact.HexRegex.IsMatch($core)) { return $false }
     # Names, not secrets: commands (Get-ChAdminAccounts2), Store app packages (MSTeams_8wekyb3d8bbwe) and words joined
     # with hexadecimal parts (code-stable-<commit hash>).
-    if ($script:CCFNameLikeRegex.IsMatch($core)) { return $false }
+    if ($CCFRedact.NameLikeRegex.IsMatch($core)) { return $false }
     # Words here are lower case, Capitalized or UPPER CASE: letters in random order are not.
     if ($String -match '[-_]' -and @($String -split '[-_]+' | Where-Object { $_ -and $_ -cnotmatch '^(?:[A-Z]?[a-z]+|[A-Z]+|[0-9A-Fa-f]+)$' }).Count -eq 0) { return $false }
 
@@ -741,6 +749,7 @@ function Register-CCFSecret {
     )
 
     process {
+        $CCFRedact = $script:CCFRedact
         $plain = switch ($PSCmdlet.ParameterSetName) {
             'Value' { $Value }
             'SecureString' { [System.Net.NetworkCredential]::new('', $SecureString).Password }
@@ -752,7 +761,7 @@ function Register-CCFSecret {
                 continue
             }
             foreach ($form in @($secret, [uri]::EscapeDataString($secret)) | Select-Object -Unique) {
-                if (-not $script:CCFSecretValues.Contains($form)) { $script:CCFSecretValues.Add($form) }
+                if (-not $CCFRedact.SecretValues.Contains($form)) { $CCFRedact.SecretValues.Add($form) }
             }
         }
         Sync-CCFSecretRegex
@@ -789,11 +798,12 @@ function Unregister-CCFSecret {
     )
 
     process {
-        if ($All) { $script:CCFSecretValues.Clear() }
+        $CCFRedact = $script:CCFRedact
+        if ($All) { $CCFRedact.SecretValues.Clear() }
         else {
             foreach ($secret in $Value) {
-                $null = $script:CCFSecretValues.Remove($secret)
-                $null = $script:CCFSecretValues.Remove([uri]::EscapeDataString($secret))
+                $null = $CCFRedact.SecretValues.Remove($secret)
+                $null = $CCFRedact.SecretValues.Remove([uri]::EscapeDataString($secret))
             }
         }
         Sync-CCFSecretRegex
@@ -841,13 +851,14 @@ function Register-CCFRedactionPattern {
         [string]$Replacement = '[REDACTED]'
     )
 
-    if ($script:CCFBuiltInRules.Name -contains $Name -or $Name -in 'KeyValue', 'Entropy', 'RegisteredSecret') {
+    $CCFRedact = $script:CCFRedact
+    if ($CCFRedact.BuiltInRules.Name -contains $Name -or $Name -in 'KeyValue', 'Entropy', 'RegisteredSecret') {
         throw "'$Name' is the name of a built-in rule. Choose another name."
     }
     try { $regex = Get-CCFCompiledRegex -Pattern $Pattern }
     catch { throw "The pattern is not a valid regular expression: $($_.Exception.Message)" }
 
-    $script:CCFCustomPatterns[$Name] = @{ Regex = $regex; Replacement = $Replacement }
+    $CCFRedact.CustomPatterns[$Name] = @{ Regex = $regex; Replacement = $Replacement }
 }
 
 function Unregister-CCFRedactionPattern {
@@ -875,8 +886,9 @@ function Unregister-CCFRedactionPattern {
     )
 
     process {
-        if ($script:CCFCustomPatterns.Contains($Name)) { $script:CCFCustomPatterns.Remove($Name) }
-        elseif ($script:CCFBuiltInRules.Name -contains $Name) { Write-Error "'$Name' is a built-in rule and cannot be removed." }
+        $CCFRedact = $script:CCFRedact
+        if ($CCFRedact.CustomPatterns.Contains($Name)) { $CCFRedact.CustomPatterns.Remove($Name) }
+        elseif ($CCFRedact.BuiltInRules.Name -contains $Name) { Write-Error "'$Name' is a built-in rule and cannot be removed." }
         else { Write-Error "No redaction pattern is named '$Name'." }
     }
 }
@@ -907,18 +919,19 @@ function Get-CCFRedactionPattern {
         [string]$Source
     )
 
+    $CCFRedact = $script:CCFRedact
     $rules = @(
-        [pscustomobject]@{ Name = 'RegisteredSecret'; Source = 'Registered'; Description = "Values registered with Register-CCFSecret ($($script:CCFSecretValues.Count) registered)"; Pattern = $null; Replacement = '[REDACTED]' }
+        [pscustomobject]@{ Name = 'RegisteredSecret'; Source = 'Registered'; Description = "Values registered with Register-CCFSecret ($($CCFRedact.SecretValues.Count) registered)"; Pattern = $null; Replacement = '[REDACTED]' }
     )
-    $rules += foreach ($rule in $script:CCFBuiltInRules) {
+    $rules += foreach ($rule in $CCFRedact.BuiltInRules) {
         [pscustomobject]@{ Name = $rule.Name; Source = 'BuiltIn'; Description = $rule.Description; Pattern = $rule.Regex.ToString(); Replacement = $rule.Replacement }
     }
-    $rules += foreach ($name in @($script:CCFCustomPatterns.Keys)) {
-        $rule = $script:CCFCustomPatterns[$name]
+    $rules += foreach ($name in @($CCFRedact.CustomPatterns.Keys)) {
+        $rule = $CCFRedact.CustomPatterns[$name]
         [pscustomobject]@{ Name = $name; Source = 'Custom'; Description = 'Added with Register-CCFRedactionPattern'; Pattern = $rule.Regex.ToString(); Replacement = $rule.Replacement }
     }
-    $rules += [pscustomobject]@{ Name = 'KeyValue'; Source = 'BuiltIn'; Description = 'key=value, key: value and "key": "value" pairs whose key names a secret (password, token, secret, api key, cookie...)'; Pattern = $script:CCFKeyValueRegex.ToString(); Replacement = '[REDACTED]' }
-    $rules += [pscustomobject]@{ Name = 'Entropy'; Source = 'BuiltIn'; Description = 'Words that look like random secrets (Test-CCFEntropyContent)'; Pattern = $script:CCFEntropyCandidateRegex.ToString(); Replacement = '[REDACTED-ENTROPY]' }
+    $rules += [pscustomobject]@{ Name = 'KeyValue'; Source = 'BuiltIn'; Description = 'key=value, key: value and "key": "value" pairs whose key names a secret (password, token, secret, api key, cookie...)'; Pattern = $CCFRedact.KeyValueRegex.ToString(); Replacement = '[REDACTED]' }
+    $rules += [pscustomobject]@{ Name = 'Entropy'; Source = 'BuiltIn'; Description = 'Words that look like random secrets (Test-CCFEntropyContent)'; Pattern = $CCFRedact.EntropyCandidateRegex.ToString(); Replacement = '[REDACTED-ENTROPY]' }
 
     if ($Source) { $rules = @($rules | Where-Object Source -EQ $Source) }
     return $rules
