@@ -1,6 +1,6 @@
 @{
     RootModule           = 'ArgosCCF.psm1'
-    ModuleVersion        = '2.1.0'
+    ModuleVersion        = '2.2.0'
     CompatiblePSEditions = @('Desktop', 'Core')
     GUID                 = 'a4ce1d7d-c89a-46eb-9a85-5edccd5dab32'
     Author               = 'David Prieto'
@@ -35,6 +35,13 @@
         'Get-CCFChainAnchor'
         'New-CCFChainKey'
         'Export-CCFEvidence'
+        'Save-CCFChainAnchor'
+        'Write-CCFAnchor'
+        'Get-CCFAnchor'
+        'Set-CCFAnchorStore'
+        'Get-CCFFolderHash'
+        'Add-CCFFolderHash'
+        'Test-CCFFolderChain'
         'Write-CCFErrorRecord'
         'Remove-CCFOldLog'
         'Get-CCFLogWriter'
@@ -51,6 +58,7 @@
         'Unregister-CCFRedactionPattern'
         'Get-CCFRedactionPattern'
         'Protect-CCFLogFile'
+        'Set-CCFRedactionOption'
     )
     CmdletsToExport      = @()
     VariablesToExport    = @()

@@ -152,6 +152,8 @@ Export-ModuleMember -Function @(
     'Write-CCFLogCritical', 'Write-CCFLogDebug', 'Write-CCFLogHeader',
     'Write-CCFSecurityRecord', 'Write-CCFAuditRecord', 'Write-CCFErrorRecord', 'Remove-CCFOldLog',
     'Test-CCFLogChain', 'Get-CCFLogChainHead', 'Register-CCFChainAnchor', 'Get-CCFChainAnchor', 'New-CCFChainKey', 'Export-CCFEvidence',
+    'Save-CCFChainAnchor', 'Write-CCFAnchor', 'Get-CCFAnchor', 'Set-CCFAnchorStore',
+    'Get-CCFFolderHash', 'Add-CCFFolderHash', 'Test-CCFFolderChain', 'Set-CCFRedactionOption',
     'Get-CCFLogWriter', 'Wait-CCFLogWriter', 'Stop-CCFLogWriter',
     'Protect-CCFSensitiveData', 'Test-CCFEntropyContent', 'Test-CCFHealth',
     'Register-CCFSecret', 'Unregister-CCFSecret', 'Register-CCFRedactionPattern', 'Unregister-CCFRedactionPattern',

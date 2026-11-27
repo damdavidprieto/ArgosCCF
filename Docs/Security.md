@@ -20,7 +20,7 @@ provider, the SIEM provider or a file. Text is checked in this order
 | 6. Connection strings | `Password`, `Pwd`, `AccountKey` and shared access keys, up to the next `;` (spaces included) | `User Id=sa;Password=[REDACTED];` |
 | 7. Known token formats | JSON web tokens; GitHub (`ghp_`, `github_pat_`...), AWS access key IDs (`AKIA`...), Slack (`xoxb-`...), Stripe (`sk_live_`...), Google (`AIza`...), npm (`npm_`) and `sk-` keys | `token [REDACTED]` |
 | 7b. XML and command lines | Elements such as `<password>`; `-Password x`, `--token x`, `/pass:x` in any program; the password options of `net`, `rasdial`, `schtasks` and other Windows tools, PsTools, `sqlcmd`, `mysql`, `curl -u`, container logins, `sshpass`, 7-Zip, RAR, `zip`, `openssl`, `certutil` and `netsh`; literals of `ConvertTo-SecureString` | `net user bob [REDACTED] /add` |
-| 7c. Encoded commands | PowerShell `-EncodedCommand`: 32 bits of its SHA-256 and its length. The same command gives the same fingerprint; someone who already suspects the exact content could check the guess | `-EncodedCommand [ENCODED 1a2b3c4d 120 chars]` |
+| 7c. Encoded commands | PowerShell `-EncodedCommand`: 32 bits of its SHA-256 and its length. The same command gives the same fingerprint; someone who already suspects the exact content could check the guess. With `Set-CCFRedactionOption -EncodedCommand Decode`, the decoded command with its secrets redacted (the encoded text is never kept: a password inside it would escape every rule) | `-EncodedCommand [ENCODED 1a2b3c4d 120 chars]` |
 | 8. Your patterns | Regular expressions added with `Register-CCFRedactionPattern` | `[REDACTED]` |
 | 9. Key/value pairs | `key=value`, `key: value`, `"key": "value"` and quoted values with spaces, when the key names a secret: password, passwd, passphrase, contrasena (with or without the tilde), secret, token, api key, access key, private key, account key, shared key, credential, cookie, session id, signature, connection string (also inside longer keys such as `db_password` or `ClientSecret`), keys that end in signature, and the exact keys pwd, pass, pw, pin, sig, sas, pat, clave. Keys that describe a secret (`MinimumPasswordLength`, `PasswordLastSet`, `credential.helper`) and unquoted values that cannot be one (true, false, null, `{`, and code such as `$x = $y` or `$x = Read-Host`) are kept | `{"password":"[REDACTED]"}` |
 | 10. Random-looking words | 20 or more characters mixing upper case, lower case and digits (see `Test-CCFEntropyContent`). GUIDs, SIDs, hashes, paths, URLs, host names, command names, Store app packages and words joined to hexadecimal parts are left alone | `key [REDACTED-ENTROPY]` |
@@ -95,6 +95,20 @@ detected. Do not log secrets on purpose, and register the ones your script handl
   the logs, their anchors and the result into a zip whose SHA-256 you can keep elsewhere. `Test-CCFLogChain` also
   reports `ClockWarnings`, lines dated earlier than the one before, which is how a clock set back to hide when
   something happened shows up.
+- **Anchors for what is not a log.** `Write-CCFAnchor` and `Get-CCFAnchor` keep and read your own hashes (a report, a
+  settings file, a heartbeat) in the Application log, as `<kind> <text>` events with your source and event IDs.
+  `Register-CCFChainAnchor -Category` anchors only some logs, each with its own interval, and `Save-CCFChainAnchor`
+  anchors the last head at the end of a task. Chain anchors carry a key of the log's folder, so a copy of the
+  program in another folder that writes logs with the same names and the same source causes no false alarm.
+  `Set-CCFAnchorStore -Store Memory` keeps tests away from the event log. Any program can write events with any
+  source: an anchor that does not match raises an alarm, it never hides a change.
+- **Folders that must not change.** `Add-CCFFolderHash` records the hash of a folder (every file and its path) as a
+  chained line, and `Test-CCFFolderChain` checks the chain and that the folders still have that hash; folders deleted
+  by age are listed, and only count as a problem when they are younger than `-KeepDays`.
+  `Export-CCFEvidence -Folder` includes them in the package.
+- **Keys for two accounts.** `New-CCFChainKey -Reader` protects the key for the computer and lets only the accounts
+  given (and SYSTEM and Administrators) read the file. Any process of those accounts can sign lines: it protects
+  against the other accounts, not against malware running as a reader.
 - **Who wrote each line.** `Initialize-CCFLogger -WriterInfo` adds the account, whether it was elevated and the
   process ID to every line; in a chained log they are part of what is hashed.
 - **One entry, one line.** Line breaks in messages are written as the text `\n`, and other control

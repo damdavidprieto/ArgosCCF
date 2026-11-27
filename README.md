@@ -90,9 +90,10 @@ More in [`Examples/`](Examples/). Each example runs as part of the tests.
 
 | Area | Commands |
 |---|---|
-| Redaction | `Protect-CCFSensitiveData`, `Protect-CCFLogFile`, `Register-CCFSecret`, `Unregister-CCFSecret`, `Register-CCFRedactionPattern`, `Unregister-CCFRedactionPattern`, `Get-CCFRedactionPattern`, `Test-CCFEntropyContent` |
+| Redaction | `Protect-CCFSensitiveData`, `Protect-CCFLogFile`, `Register-CCFSecret`, `Unregister-CCFSecret`, `Register-CCFRedactionPattern`, `Unregister-CCFRedactionPattern`, `Get-CCFRedactionPattern`, `Test-CCFEntropyContent`, `Set-CCFRedactionOption` |
 | Logging | `Initialize-CCFLogger`, `Write-CCFLog`, `Write-CCFLogInfo`, `Write-CCFLogSuccess`, `Write-CCFLogWarn`, `Write-CCFLogError`, `Write-CCFLogCritical`, `Write-CCFLogDebug`, `Write-CCFLogHeader`, `Set-CCFLogLevel`, `Register-CCFLogProvider`, `Register-CCFSIEMProvider`, `Remove-CCFOldLog`, `Get-CCFLogWriter`, `Wait-CCFLogWriter`, `Stop-CCFLogWriter` |
-| Security and audit records | `Write-CCFSecurityRecord`, `Write-CCFAuditRecord`, `Write-CCFErrorRecord`, `Test-CCFLogChain`, `Get-CCFLogChainHead`, `Register-CCFChainAnchor`, `Get-CCFChainAnchor`, `New-CCFChainKey`, `Export-CCFEvidence` |
+| Security and audit records | `Write-CCFSecurityRecord`, `Write-CCFAuditRecord`, `Write-CCFErrorRecord`, `Test-CCFLogChain`, `Get-CCFLogChainHead`, `Register-CCFChainAnchor`, `Save-CCFChainAnchor`, `Get-CCFChainAnchor`, `New-CCFChainKey`, `Export-CCFEvidence` |
+| Anchors and folders | `Write-CCFAnchor`, `Get-CCFAnchor`, `Set-CCFAnchorStore`, `Get-CCFFolderHash`, `Add-CCFFolderHash`, `Test-CCFFolderChain` |
 | Environment | `Get-CCFPath`, `Initialize-CCFEnvironment`, `Test-CCFHealth` |
 
 See the [API reference](Docs/API-Reference.md) for every command.
